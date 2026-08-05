@@ -51,17 +51,33 @@ Otherwise, you can watch the video above first and directly use this repo in htt
 
 `search_arxiv.py` searches all matching arXiv papers from oldest to newest and
 exports their titles, abstracts, authors, dates, categories, abstract links, and
-PDF links. The end date is inclusive, and omitting `--limit` enables automatic
-pagination until all available results have been retrieved.
+PDF links. The end date is inclusive, and searches are automatically paginated
+until the configured result limit has been reached.
+
+Set the search options in the configuration block near the top of
+`search_arxiv.py`, then run the script without arguments. `MAX_RESULTS` controls
+the maximum number of exported papers; set it to `None` to export every match.
+Add phrases to `SEARCH_KEYWORDS`, and use `KEYWORD_OPERATOR = "OR"` to match any
+phrase or `"AND"` to require all phrases. Set `SEARCH_CATEGORIES = ["cs"]` for
+all computer science categories, list exact categories such as `cs.AI` and
+`cs.CV`, or use an empty list to search without a category restriction.
 
 ```bash
-uv run python search_arxiv.py "large language model" \
-  --start-date 2018-01-01 \
-  --end-date 2024-12-31 \
-  --output papers.jsonl
+uv run python search_arxiv.py
 ```
 
-Use `--output papers.csv` for CSV, `--field title` to search titles only, or
+You can also override that setting for one run by passing one or more keywords:
+
+```bash
+uv run python search_arxiv.py "large language model" "vision language model" \
+  --start-date 2018-01-01 \
+  --end-date 2024-12-31 \
+  --output papers.ris
+```
+
+The default output is an RIS file that can be imported directly into EndNote.
+Use `--output papers.csv` for CSV, `--output papers.jsonl` for JSON Lines,
+`--field title` to search titles only, or
 `--match all` to require every word instead of matching an exact phrase. Run
 `uv run python search_arxiv.py --help` for all options. arXiv requests are rate
 limited by default, so a large historical search can take some time.

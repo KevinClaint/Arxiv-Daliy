@@ -14,12 +14,94 @@ from pathlib import Path
 from typing import Any, Iterable, TextIO
 
 
+# ======================== 用户配置区 ========================
+# 日期格式为 "YYYY-MM-DD"；设为 None 表示不限制该方向的日期。
+SEARCH_KEYWORDS = [
+    "large language model",
+    "vision language model",
+]
+# 多个关键词之间的关系："OR"（匹配任意一个）或 "AND"（必须全部匹配）。
+KEYWORD_OPERATOR = "OR"
+START_DATE: str | None = None
+END_DATE: str | None = None
+
+# arXiv 搜索领域（分类）设置：
+# - ["cs"]：全部计算机科学领域。
+# - ["cs.AI", "cs.CL", "cs.CV", "cs.LG"]：仅限人工智能、计算语言学、
+#   计算机视觉和机器学习。
+# - 其他常用代码：cs.RO（机器人）、cs.IR（信息检索）、cs.CR（安全）、
+#   cs.HC（人机交互）、stat.ML（统计机器学习）、eess.IV（图像与视频处理）。
+# - []：不限制搜索领域。
+SEARCH_CATEGORIES = ["cs.AI", "cs.CL", "cs.CV", "cs.LG"]
+
+# 检索字段："all"、"title"、"abstract" 或 "author"。
+SEARCH_FIELD = "all"
+# 多词匹配："phrase"（完整短语）、"all"（全部词）或 "any"（任意词）。
+MATCH_MODE = "phrase"
+
+# 最多导出的论文篇数；设为 None 表示导出全部匹配结果。
+MAX_RESULTS: int | None = 100
+OUTPUT_FILE = "arxiv_results.ris"
+# "ris" 可导入 EndNote；也可设为 "csv"、"jsonl" 或 None（根据扩展名推断）。
+OUTPUT_FORMAT: str | None = "ris"
+
+# arXiv 请求设置。
+PAGE_SIZE = 100
+REQUEST_DELAY_SECONDS = 3.0
+REQUEST_RETRIES = 3
+PROGRESS_EVERY = 100  # 每处理多少篇显示一次进度；0 表示关闭。
+# ============================================================
+
+
 FIELD_PREFIXES = {
     "all": "all",
     "title": "ti",
     "abstract": "abs",
     "author": "au",
 }
+
+CS_CATEGORIES = (
+    "cs.AI",
+    "cs.AR",
+    "cs.CC",
+    "cs.CE",
+    "cs.CG",
+    "cs.CL",
+    "cs.CR",
+    "cs.CV",
+    "cs.CY",
+    "cs.DB",
+    "cs.DC",
+    "cs.DL",
+    "cs.DM",
+    "cs.DS",
+    "cs.ET",
+    "cs.FL",
+    "cs.GL",
+    "cs.GR",
+    "cs.GT",
+    "cs.HC",
+    "cs.IR",
+    "cs.IT",
+    "cs.LG",
+    "cs.LO",
+    "cs.MA",
+    "cs.MM",
+    "cs.MS",
+    "cs.NA",
+    "cs.NE",
+    "cs.NI",
+    "cs.OH",
+    "cs.OS",
+    "cs.PF",
+    "cs.PL",
+    "cs.RO",
+    "cs.SC",
+    "cs.SD",
+    "cs.SE",
+    "cs.SI",
+    "cs.SY",
+)
 
 CSV_FIELDS = [
     "id",
@@ -54,31 +136,69 @@ def _quoted(value: str) -> str:
     return f'"{escaped}"'
 
 
+def _category_query(categories: Iterable[str] | None) -> str | None:
+    if not categories:
+        return None
+
+    expanded: list[str] = []
+    for category in categories:
+        category = category.strip()
+        if category.lower() == "cs":
+            expanded.extend(CS_CATEGORIES)
+        elif re.fullmatch(r"[a-z][a-z0-9-]*\.[A-Za-z0-9-]+", category):
+            expanded.append(category)
+        else:
+            raise ValueError(f"invalid arXiv category: {category!r}")
+
+    unique_categories = list(dict.fromkeys(expanded))
+    query = " OR ".join(f"cat:{category}" for category in unique_categories)
+    return f"({query})" if len(unique_categories) > 1 else query
+
+
 def build_query(
-    keyword: str,
+    keywords: str | Iterable[str],
     field: str = "all",
     match: str = "phrase",
     start_date: date | None = None,
     end_date: date | None = None,
+    keyword_operator: str = "OR",
+    categories: Iterable[str] | None = None,
 ) -> str:
     """Build an arXiv API query with an inclusive submission-date range."""
-    keyword = " ".join(keyword.split())
-    if not keyword:
-        raise ValueError("keyword must not be empty")
+    raw_keywords = [keywords] if isinstance(keywords, str) else list(keywords)
+    cleaned_keywords = [" ".join(keyword.split()) for keyword in raw_keywords]
+    if not cleaned_keywords or any(not keyword for keyword in cleaned_keywords):
+        raise ValueError("keywords must not be empty")
     if field not in FIELD_PREFIXES:
         raise ValueError(f"unsupported search field: {field}")
     if match not in {"phrase", "all", "any"}:
         raise ValueError(f"unsupported match mode: {match}")
+    keyword_operator = keyword_operator.upper()
+    if keyword_operator not in {"OR", "AND"}:
+        raise ValueError(f"unsupported keyword operator: {keyword_operator}")
     if start_date and end_date and start_date > end_date:
         raise ValueError("start date must not be after end date")
 
     prefix = FIELD_PREFIXES[field]
-    if match == "phrase":
-        keyword_query = f"{prefix}:{_quoted(keyword)}"
-    else:
+    keyword_queries = []
+    for keyword in cleaned_keywords:
+        if match == "phrase":
+            keyword_queries.append(f"{prefix}:{_quoted(keyword)}")
+            continue
+
         terms = [f"{prefix}:{_quoted(term)}" for term in keyword.split()]
-        operator = " AND " if match == "all" else " OR "
-        keyword_query = f"({operator.join(terms)})" if len(terms) > 1 else terms[0]
+        term_operator = " AND " if match == "all" else " OR "
+        keyword_queries.append(
+            f"({term_operator.join(terms)})" if len(terms) > 1 else terms[0]
+        )
+
+    keyword_query = f" {keyword_operator} ".join(keyword_queries)
+    if len(keyword_queries) > 1:
+        keyword_query = f"({keyword_query})"
+
+    category_query = _category_query(categories)
+    if category_query:
+        keyword_query = f"{keyword_query} AND {category_query}"
 
     if not start_date and not end_date:
         return keyword_query
@@ -139,6 +259,40 @@ def _csv_record(record: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _write_ris_record(record: dict[str, Any], output: TextIO) -> None:
+    """Write one paper as an EndNote-compatible RIS record."""
+    published = datetime.fromisoformat(record["published"])
+    fields: list[tuple[str, str | None]] = [
+        ("TY", "JOUR"),
+        ("TI", record["title"]),
+    ]
+    fields.extend(("AU", author) for author in record["authors"])
+    fields.extend(
+        [
+            ("PY", str(published.year)),
+            ("DA", published.strftime("%Y/%m/%d")),
+            ("AB", record["summary"]),
+            ("T2", record["journal_ref"] or "arXiv"),
+            ("M3", "Preprint"),
+            ("AN", f'arXiv:{record["id"]}'),
+        ]
+    )
+    fields.extend(("KW", category) for category in record["categories"])
+    fields.extend(
+        [
+            ("DO", record["doi"]),
+            ("UR", record["abstract_url"]),
+            ("L1", record["pdf_url"]),
+            ("N1", record["comment"]),
+        ]
+    )
+
+    for tag, value in fields:
+        if value:
+            output.write(f"{tag}  - {value}\r\n")
+    output.write("ER  - \r\n\r\n")
+
+
 def write_results(
     papers: Iterable[Any],
     output: TextIO,
@@ -154,7 +308,9 @@ def write_results(
     count = 0
     for paper in papers:
         record = paper_to_record(paper)
-        if csv_writer:
+        if output_format == "ris":
+            _write_ris_record(record, output)
+        elif csv_writer:
             csv_writer.writerow(_csv_record(record))
         else:
             output.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -168,8 +324,12 @@ def write_results(
 def infer_format(output_path: str, explicit_format: str | None) -> str:
     if explicit_format:
         return explicit_format
-    if output_path != "-" and Path(output_path).suffix.lower() == ".csv":
-        return "csv"
+    if output_path != "-":
+        suffix = Path(output_path).suffix.lower()
+        if suffix == ".ris":
+            return "ris"
+        if suffix == ".csv":
+            return "csv"
     return "jsonl"
 
 
@@ -177,44 +337,90 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="按首次提交时间从旧到新检索 arXiv 论文，并导出完整元数据。"
     )
-    parser.add_argument("keyword", help="要检索的关键词或短语")
     parser.add_argument(
-        "--start-date", type=parse_date, help="起始日期（含），格式 YYYY-MM-DD"
+        "keywords",
+        nargs="*",
+        default=SEARCH_KEYWORDS,
+        help="要检索的一个或多个关键词；包含空格的短语需要放在引号内",
     )
     parser.add_argument(
-        "--end-date", type=parse_date, help="结束日期（含），格式 YYYY-MM-DD"
+        "--keyword-operator",
+        type=str.upper,
+        choices=("OR", "AND"),
+        default=KEYWORD_OPERATOR,
+        help=f"多个关键词的组合方式（文件顶部配置：{KEYWORD_OPERATOR}）",
+    )
+    parser.add_argument(
+        "--categories",
+        nargs="+",
+        default=SEARCH_CATEGORIES,
+        help="arXiv 分类范围，例如 cs、cs.AI、cs.CV；默认读取文件顶部配置",
+    )
+    parser.add_argument(
+        "--start-date",
+        type=parse_date,
+        default=START_DATE,
+        help="起始日期（含），格式 YYYY-MM-DD；默认读取文件顶部配置",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=parse_date,
+        default=END_DATE,
+        help="结束日期（含），格式 YYYY-MM-DD；默认读取文件顶部配置",
     )
     parser.add_argument(
         "--field",
         choices=FIELD_PREFIXES,
-        default="all",
-        help="检索字段（默认：all）",
+        default=SEARCH_FIELD,
+        help=f"检索字段（文件顶部配置：{SEARCH_FIELD}）",
     )
     parser.add_argument(
         "--match",
         choices=("phrase", "all", "any"),
-        default="phrase",
-        help="多词匹配方式：完整短语、全部词、任意词（默认：phrase）",
+        default=MATCH_MODE,
+        help=f"多词匹配方式：完整短语、全部词、任意词（文件顶部配置：{MATCH_MODE}）",
     )
     parser.add_argument(
-        "-o", "--output", default="arxiv_results.jsonl", help="输出文件；- 表示标准输出"
+        "-o",
+        "--output",
+        default=OUTPUT_FILE,
+        help=f"输出文件（文件顶部配置：{OUTPUT_FILE}）；- 表示标准输出",
     )
     parser.add_argument(
-        "--format", choices=("jsonl", "csv"), help="输出格式；默认根据扩展名推断"
+        "--format",
+        choices=("ris", "jsonl", "csv"),
+        default=OUTPUT_FORMAT,
+        help="输出格式；默认根据扩展名推断，RIS 可直接导入 EndNote",
     )
     parser.add_argument(
-        "--limit", type=int, help="最多返回多少篇；不设置时自动翻页直到检索完"
+        "--limit",
+        type=int,
+        default=MAX_RESULTS,
+        help=f"最多导出多少篇（文件顶部配置：{MAX_RESULTS}；None 表示全部）",
     )
-    parser.add_argument("--page-size", type=int, default=100, help="每页数量（默认：100）")
     parser.add_argument(
-        "--delay", type=float, default=3.0, help="分页请求间隔秒数（默认：3.0）"
+        "--page-size",
+        type=int,
+        default=PAGE_SIZE,
+        help=f"每页数量（文件顶部配置：{PAGE_SIZE}）",
     )
-    parser.add_argument("--retries", type=int, default=3, help="请求失败重试次数（默认：3）")
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=REQUEST_DELAY_SECONDS,
+        help=f"分页请求间隔秒数（文件顶部配置：{REQUEST_DELAY_SECONDS}）",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=REQUEST_RETRIES,
+        help=f"请求失败重试次数（文件顶部配置：{REQUEST_RETRIES}）",
+    )
     parser.add_argument(
         "--progress-every",
         type=int,
-        default=100,
-        help="每写入多少篇报告一次进度；0 表示关闭（默认：100）",
+        default=PROGRESS_EVERY,
+        help=f"每写入多少篇报告一次进度（文件顶部配置：{PROGRESS_EVERY}；0 表示关闭）",
     )
     return parser
 
@@ -240,7 +446,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         validate_args(args)
         query = build_query(
-            args.keyword, args.field, args.match, args.start_date, args.end_date
+            args.keywords,
+            field=args.field,
+            match=args.match,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            keyword_operator=args.keyword_operator,
+            categories=args.categories,
         )
     except ValueError as exc:
         parser.error(str(exc))

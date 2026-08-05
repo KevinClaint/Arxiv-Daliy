@@ -5,10 +5,58 @@ import unittest
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
-from search_arxiv import build_query, infer_format, paper_to_record, write_results
+from search_arxiv import (
+    END_DATE,
+    MATCH_MODE,
+    MAX_RESULTS,
+    OUTPUT_FILE,
+    OUTPUT_FORMAT,
+    PAGE_SIZE,
+    PROGRESS_EVERY,
+    REQUEST_DELAY_SECONDS,
+    REQUEST_RETRIES,
+    KEYWORD_OPERATOR,
+    SEARCH_KEYWORDS,
+    SEARCH_CATEGORIES,
+    SEARCH_FIELD,
+    START_DATE,
+    build_parser,
+    build_query,
+    infer_format,
+    paper_to_record,
+    write_results,
+)
 
 
 class SearchArxivTests(unittest.TestCase):
+    def test_uses_file_configuration_when_arguments_are_omitted(self):
+        parser = build_parser()
+        args = parser.parse_args([])
+
+        self.assertEqual(args.keywords, SEARCH_KEYWORDS)
+        self.assertEqual(args.keyword_operator, KEYWORD_OPERATOR)
+        self.assertEqual(args.categories, SEARCH_CATEGORIES)
+        self.assertEqual(args.start_date, START_DATE)
+        self.assertEqual(args.end_date, END_DATE)
+        self.assertEqual(args.field, SEARCH_FIELD)
+        self.assertEqual(args.match, MATCH_MODE)
+        self.assertEqual(args.limit, MAX_RESULTS)
+        self.assertEqual(args.output, OUTPUT_FILE)
+        self.assertEqual(args.format, OUTPUT_FORMAT)
+        self.assertEqual(args.page_size, PAGE_SIZE)
+        self.assertEqual(args.delay, REQUEST_DELAY_SECONDS)
+        self.assertEqual(args.retries, REQUEST_RETRIES)
+        self.assertEqual(args.progress_every, PROGRESS_EVERY)
+
+    def test_command_line_arguments_override_file_configuration(self):
+        parser = build_parser()
+
+        self.assertEqual(
+            parser.parse_args(["robotics", "machine learning"]).keywords,
+            ["robotics", "machine learning"],
+        )
+        self.assertEqual(parser.parse_args(["--limit", "25"]).limit, 25)
+
     def test_builds_inclusive_date_query(self):
         query = build_query(
             "large language model",
@@ -27,6 +75,34 @@ class SearchArxivTests(unittest.TestCase):
             build_query("vision transformer", field="title", match="all"),
             '(ti:"vision" AND ti:"transformer")',
         )
+
+    def test_combines_multiple_keywords(self):
+        self.assertEqual(
+            build_query(["large language model", "vision transformer"]),
+            '(all:"large language model" OR all:"vision transformer")',
+        )
+        self.assertEqual(
+            build_query(["robotics", "reinforcement learning"], keyword_operator="AND"),
+            '(all:"robotics" AND all:"reinforcement learning")',
+        )
+
+    def test_limits_query_to_arxiv_categories(self):
+        self.assertEqual(
+            build_query("transformer", categories=["cs.AI", "cs.CV"]),
+            'all:"transformer" AND (cat:cs.AI OR cat:cs.CV)',
+        )
+
+    def test_expands_cs_category_scope(self):
+        query = build_query("transformer", categories=["cs"])
+
+        self.assertIn("cat:cs.AI", query)
+        self.assertIn("cat:cs.CV", query)
+        self.assertIn("cat:cs.LG", query)
+        self.assertIn("cat:cs.SY", query)
+
+    def test_rejects_invalid_arxiv_category(self):
+        with self.assertRaisesRegex(ValueError, "invalid arXiv category"):
+            build_query("transformer", categories=["computer science"])
 
     def test_rejects_reversed_date_range(self):
         with self.assertRaisesRegex(ValueError, "start date"):
@@ -59,7 +135,24 @@ class SearchArxivTests(unittest.TestCase):
         csv_row = next(csv.DictReader(io.StringIO(csv_output.getvalue())))
         self.assertEqual(csv_row["authors"], "Alice Zhang; Bob Li")
 
+    def test_writes_endnote_compatible_ris(self):
+        output = io.StringIO(newline="")
+
+        self.assertEqual(write_results([self._paper()], output, "ris", 0), 1)
+
+        ris = output.getvalue()
+        self.assertIn("TY  - JOUR\r\n", ris)
+        self.assertIn("TI  - A useful paper\r\n", ris)
+        self.assertIn("AU  - Alice Zhang\r\nAU  - Bob Li\r\n", ris)
+        self.assertIn("DA  - 2024/01/01\r\n", ris)
+        self.assertIn("AN  - arXiv:2401.00001v1\r\n", ris)
+        self.assertIn("KW  - cs.AI\r\nKW  - cs.LG\r\n", ris)
+        self.assertIn("UR  - https://arxiv.org/abs/2401.00001v1\r\n", ris)
+        self.assertIn("L1  - https://arxiv.org/pdf/2401.00001v1\r\n", ris)
+        self.assertTrue(ris.endswith("ER  - \r\n\r\n"))
+
     def test_infers_output_format(self):
+        self.assertEqual(infer_format("papers.ris", None), "ris")
         self.assertEqual(infer_format("papers.csv", None), "csv")
         self.assertEqual(infer_format("papers.jsonl", None), "jsonl")
         self.assertEqual(infer_format("papers.csv", "jsonl"), "jsonl")
