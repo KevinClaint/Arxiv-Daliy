@@ -47,6 +47,25 @@ This repo will daily crawl arXiv papers about **cs.CV, cs.GR, cs.CL and cs.AI**,
 If you wish to crawl other arXiv categories, use other LLMs, or other languages, please follow the instructions.
 Otherwise, you can watch the video above first and directly use this repo in https://dw-dengwei.github.io/daily-arXiv-ai-enhanced/. Please star it if you like :)
 
+## Search historical papers by keyword
+
+`search_arxiv.py` searches all matching arXiv papers from oldest to newest and
+exports their titles, abstracts, authors, dates, categories, abstract links, and
+PDF links. The end date is inclusive, and omitting `--limit` enables automatic
+pagination until all available results have been retrieved.
+
+```bash
+uv run python search_arxiv.py "large language model" \
+  --start-date 2018-01-01 \
+  --end-date 2024-12-31 \
+  --output papers.jsonl
+```
+
+Use `--output papers.csv` for CSV, `--field title` to search titles only, or
+`--match all` to require every word instead of matching an exact phrase. Run
+`uv run python search_arxiv.py --help` for all options. arXiv requests are rate
+limited by default, so a large historical search can take some time.
+
 <details>
    <summary> If you want to customize categories, LLMs, or languages, click here.  </summary>
 
