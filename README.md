@@ -1,228 +1,587 @@
-# 🚀 daily-arXiv-ai-enhanced
+# 每日 arXiv 论文追踪与中文总结网站
+
+这是一个可以部署在 GitHub 上的自动化论文网站。它每天根据你维护的关键词查询 arXiv，使用 DeepSeek 等兼容 OpenAI API 的模型生成中文总结，为论文添加规范主题标签，并通过 GitHub Pages 展示结果。
+
+整个系统不需要购买服务器，主要使用：
+
+- GitHub Actions：每天自动抓取、总结和更新论文。
+- GitHub Pages：托管论文浏览网站。
+- DeepSeek API：生成中文论文总结。
+- `data` 分支：保存每天生成的论文数据。
 
 > [!CAUTION]
-> 若您所在法域对学术数据有审查要求，谨慎运行本代码；任何二次分发版本必须履行合规审查（包括但不限于原始论文合规性、AI合规性）义务，否则一切法律后果由下游自行承担。
+> 论文内容和中文总结可能存在错误。AI 结果只能作为阅读辅助，重要结论请以原论文为准。部署者需要自行承担 API 费用，并负责公开页面的内容合规。
 
-> [!CAUTION]
-> If your jurisdiction has censorship requirements for academic data, run this code with caution; any secondary distribution version must remove the entrance accessible to China and fulfill the content review obligations, otherwise all legal consequences will be borne by the downstream.
+## 功能
 
+- 根据 [`keywords.txt`](./keywords.txt) 自动查询近期 arXiv 论文。
+- 默认查询全部 arXiv 学科，也可以限制为指定分类。
+- 自动生成 TL;DR、研究动机、方法、结果和结论的中文总结。
+- 内置 30 个不重复的规范主题标签。
+- 支持按 arXiv 分类、主题标签、作者和文本检索论文。
+- 支持单日和日期范围浏览。
+- 标签升级时只迁移已有 JSONL 数据，不重新读取 PDF，也不重新调用模型。
+- 每天北京时间 09:30 自动运行，也支持手动执行。
 
-This innovative tool transforms how you stay updated with arXiv papers by combining automated crawling with AI-powered summarization.
+## 部署前准备
 
+你需要：
 
-## ✨ Key Features
+1. 一个 GitHub 账号。
+2. 一个 DeepSeek API Key，通常以 `sk-` 开头。
+3. 已经 Fork 本仓库，或者把本地代码推送到自己的 GitHub 仓库。
 
-🎯 **Zero Infrastructure Required**
-- Leverages GitHub Actions and Pages - no server needed
-- Completely free to deploy and use
+DeepSeek API Key 可以在 DeepSeek 开放平台创建。请勿把 API Key 写入代码、README、Issue 或普通 GitHub Variable。
 
-🤖 **Smart AI Summarization**
-- Daily paper crawling with DeepSeek-powered summaries
-- Cost-effective: Only ~0.2 CNY per day
+## 第一步：把项目放到自己的 GitHub
 
-💫 **Smart Reading Experience**
-- Personalized paper highlighting based on your interests
-- Cross-device compatibility (desktop & mobile)
-- Local preference storage for privacy
-- Flexible date range filtering
+### 方法一：使用 Fork
 
-🧩 **SKILL System**
-- Plug-and-play skill modules for customizing paper filtering
+在原仓库页面点击右上角 `Fork`，选择自己的 GitHub 账号，然后等待仓库创建完成。
 
-⚙️ **Easy Preference Export & Integration**
-- One-click copy in Settings to export your keywords and authors configuration
-- Seamlessly combine exported preferences with SKILL for reproducible and shareable setups
+如果 GitHub 提示 Fork 中的工作流已停用，进入仓库的 `Actions` 页面，点击：
 
-👉 **[Try it now!](https://dw-dengwei.github.io/daily-arXiv-ai-enhanced/)** - No installation required
+```text
+I understand my workflows, go ahead and enable them
+```
 
+### 方法二：推送当前本地代码
 
+确认远程仓库地址后执行：
 
-https://github.com/user-attachments/assets/b25712a4-fb8d-484f-863d-e8da6922f9d7
+```bash
+git add .
+git commit -m "feat: deploy daily arxiv website"
+git push origin main
+```
 
+当前项目对应的 GitHub Pages 地址通常是：
 
+```text
+https://<GitHub用户名>.github.io/<仓库名>/
+```
 
+例如仓库是 `KevinClaint/Arxiv-Daliy`，地址就是：
 
-# How to use
-This repo searches recent papers across **all arXiv fields** using your shared keyword list, and uses an OpenAI-compatible model such as **DeepSeek** to summarize them in **Chinese**.
-You can optionally restrict arXiv categories, change the model, or change the output language in GitHub Actions variables.
-Otherwise, you can watch the video above first and directly use this repo in https://dw-dengwei.github.io/daily-arXiv-ai-enhanced/. Please star it if you like :)
+```text
+https://kevinclaint.github.io/Arxiv-Daliy/
+```
 
-## 部署到你自己的 GitHub，每日按关键词更新
+## 第二步：添加 DeepSeek API 配置
 
-1. 修改仓库根目录的 [`keywords.txt`](./keywords.txt)：每行一个关键词或短语，`#` 开头的行是注释。每日任务直接通过 arXiv API 在标题和摘要中查询，命中任意一条就保留；默认覆盖所有 arXiv 学科。
-2. 把仓库推送到你自己的 GitHub，或在 GitHub 上 Fork 后提交对 `keywords.txt` 的修改。
-3. 打开仓库的 `Settings -> Actions -> General`，在 `Workflow permissions` 中选择 `Read and write permissions`。
-4. 在 `Settings -> Secrets and variables -> Actions` 中添加下方列出的 Secrets 和 Variables。
-5. 打开 `Actions`，如果 GitHub 提示 Fork 的工作流已停用，先点击 `I understand my workflows, go ahead and enable them`；然后进入 `arXiv-daily-ai-enhanced -> Run workflow` 手动测试一次。正常运行后，任务会在每天北京时间 09:30 自动执行。
-6. 打开 `Settings -> Pages`，选择 `Deploy from a branch`，分支设为 `main`，目录设为 `/(root)`。页面地址是 `https://<你的用户名>.github.io/<仓库名>/`。
+打开自己的 GitHub 仓库，依次进入：
 
-必需的 Secrets：
+```text
+Settings
+-> Secrets and variables
+-> Actions
+```
 
-- `OPENAI_API_KEY`：用于生成论文摘要的模型 API Key。
-- `OPENAI_BASE_URL`：OpenAI 兼容接口地址，例如 DeepSeek 的 `https://api.deepseek.com`。
+这里有两个不同的页面：
 
-建议添加的 Variables：
+- `Secrets`：保存 API Key 等敏感信息，保存后无法再次查看原文。
+- `Variables`：保存模型名、语言等普通配置，会以明文显示。
 
-- `CATEGORIES`：可选。留空代表查询全部 arXiv 学科；只有确实要缩小范围时才填写，例如 `cs.AI, cs.CV, cs.LG`。
-- `LANGUAGE`：摘要语言，例如 `Chinese`。
-- `MODEL_NAME`：模型名，例如 `deepseek-chat`。
-- `LOOKBACK_DAYS`：每日回看天数，默认 `7`，用于覆盖周末、延迟发布和临时失败。
-- `DAILY_PAPER_LIMIT`：每日最多处理的新论文数，默认 `500`。
-- `EMAIL`、`NAME`：可选的自动提交身份；未设置时使用 `github-actions[bot]`。
+### 添加 Secrets
 
-`ACCESS_PASSWORD` 和 `TOKEN_GITHUB` 是可选 Secret。前者控制网页访问密码，后者仅用于查询论文中 GitHub 项目的额外信息。GitHub 定时表达式使用 UTC；当前 `30 1 * * *` 对应北京时间每天 09:30。
+进入 `Secrets`，点击 `New repository secret`，分别添加以下两个 Secret。
 
-## 主题标签库与向下兼容更新
+第一个：
 
-[`tag_catalog.json`](./tag_catalog.json) 是网站的规范主题标签库，目前包含 30 个不重复标签。每个标签包括稳定的英文 `id`、网页显示的中文 `label`，以及用于从标题、摘要和已保存 AI 总结打标的 `terms`。网页会显示这些标签，并支持点击一个或多个标签检索论文。
+```text
+Name: OPENAI_API_KEY
+Secret: 你的 DeepSeek API Key
+```
 
-也可以通过 URL 按标签查询，例如 `?tags=world-models,physical-ai`。多个标签之间是“或”关系；该模式会输出匹配论文的 JSON，适合分享检索条件或供其他工具调用。
+示意：
 
-标签更新不读取 PDF，也不重新调用大模型。每日工作流会运行 `tag_papers.py`，只根据仓库中已经保存的标题、摘要、中文总结和旧 `tags` 字段更新 JSONL。首次为旧论文补标签后，后续更新只执行版本迁移。
+```text
+OPENAI_API_KEY = sk-xxxxxxxxxxxxxxxx
+```
 
-替换标签时必须同时维护迁移记录：
+第二个：
 
-1. 将 `schema_version` 加一。
-2. 在 `tags` 中加入新的规范标签，并删除被替换的旧标签。
-3. 在 `migrations` 末尾追加连续版本迁移。一个旧标签可以映射到一个或多个新标签。
+```text
+Name: OPENAI_BASE_URL
+Secret: https://api.deepseek.com
+```
 
-例如将旧标签 `video-ai` 拆成两个标签：
+注意：
+
+- Secret 名称必须完全一致，并且区分大小写。
+- 值的两侧不要添加引号。
+- 不要在末尾添加多余空格。
+- `OPENAI_API_KEY` 只能放在 Secrets，不能放在 Variables。
+
+## 第三步：设置模型和总结语言
+
+仍然在：
+
+```text
+Settings
+-> Secrets and variables
+-> Actions
+```
+
+进入 `Variables`，点击 `New repository variable`。
+
+推荐配置如下：
+
+| Variable 名称 | 推荐值 | 说明 |
+| --- | --- | --- |
+| `MODEL_NAME` | `deepseek-chat` | 用于生成论文结构化总结的模型 |
+| `LANGUAGE` | `Chinese` | 让模型输出中文总结 |
+| `LOOKBACK_DAYS` | `7` | 每次回看最近 7 天，覆盖周末或延迟发布 |
+| `DAILY_PAPER_LIMIT` | `500` | 每次最多处理的新论文数量 |
+
+其中最重要的是：
+
+```text
+MODEL_NAME = deepseek-chat
+LANGUAGE = Chinese
+```
+
+如果没有设置，工作流也会默认使用这两个值。
+
+### 是否需要设置 CATEGORIES
+
+`CATEGORIES` 是可选变量。
+
+- 不创建或留空：在全部 arXiv 学科中查询关键词，覆盖范围最大。
+- 设置分类：只查询指定学科，速度更快、无关结果更少。
+
+示例：
+
+```text
+CATEGORIES = cs.AI, cs.CV, cs.LG, cs.RO
+```
+
+常见分类：
+
+| 分类 | 含义 |
+| --- | --- |
+| `cs.AI` | 人工智能 |
+| `cs.CV` | 计算机视觉 |
+| `cs.LG` | 机器学习 |
+| `cs.CL` | 计算语言学 |
+| `cs.RO` | 机器人 |
+| `cs.GR` | 计算机图形学 |
+| `stat.ML` | 统计机器学习 |
+| `eess.IV` | 图像与视频处理 |
+
+如果目标是“尽可能广地抓取关键词论文”，不要设置 `CATEGORIES`。
+
+## 第四步：允许 GitHub Actions 自动提交
+
+进入：
+
+```text
+Settings
+-> Actions
+-> General
+-> Workflow permissions
+```
+
+选择：
+
+```text
+Read and write permissions
+```
+
+然后点击 `Save`。
+
+这是必需设置。工作流需要把网页配置推送到 `main` 分支，并把每日论文数据推送到 `data` 分支。
+
+如果仓库启用了分支保护，还需要允许 GitHub Actions 向 `main` 分支提交，或者为机器人提交配置例外规则。
+
+## 第五步：设置抓取关键词
+
+编辑仓库根目录的 [`keywords.txt`](./keywords.txt)。每行填写一个关键词或短语：
+
+```text
+video world model
+physics-aware video generation
+3D scene understanding
+spatial reasoning
+physical reasoning
+```
+
+规则：
+
+- 每行一个关键词或短语。
+- `#` 开头的行是注释，不参与查询。
+- 空行会被忽略。
+- 匹配不区分英文大小写。
+- 多个关键词之间是“或”的关系，命中任意一个就会收录。
+- 多词短语中的各个词需要同时出现在标题或摘要查询结果中。
+
+关键词数量较多时，程序会自动分批请求 arXiv，然后合并和去重结果，避免查询地址过长。
+
+修改完成后提交：
+
+```bash
+git add keywords.txt
+git commit -m "chore: update arxiv keywords"
+git push origin main
+```
+
+## 第六步：手动运行一次工作流
+
+打开仓库的 `Actions` 页面，然后：
+
+1. 点击左侧的 `arXiv-daily-ai-enhanced`。
+2. 点击右侧的 `Run workflow`。
+3. Branch 选择 `main`。
+4. 再点击绿色的 `Run workflow`。
+
+第一次运行可能需要较长时间，具体取决于命中的论文数量和模型接口速度。
+
+工作流主要执行以下步骤：
+
+1. 安装 Python 依赖。
+2. 从 `data` 分支恢复历史论文数据。
+3. 根据 `keywords.txt` 查询近期 arXiv 论文。
+4. 与全部历史论文 ID 去重。
+5. 调用 DeepSeek 生成中文总结。
+6. 为论文添加或迁移主题标签。
+7. 将网页配置提交到 `main` 分支。
+8. 将论文 JSONL 数据提交到 `data` 分支。
+
+运行成功后，日志中通常可以看到：
+
+```text
+Connect to: deepseek-chat
+```
+
+以及论文处理、标签更新和分支推送完成的信息。
+
+## 第七步：开启 GitHub Pages
+
+进入：
+
+```text
+Settings
+-> Pages
+```
+
+在 `Build and deployment` 中设置：
+
+```text
+Source: Deploy from a branch
+Branch: main
+Folder: /(root)
+```
+
+点击 `Save`。等待几分钟后，GitHub 会显示网站地址：
+
+```text
+https://<GitHub用户名>.github.io/<仓库名>/
+```
+
+首次工作流执行时会自动把网站的数据源地址修改为你自己的仓库，因此建议先成功运行一次 Actions，再检查 Pages。
+
+## 每日自动更新时间
+
+工作流配置位于 [`.github/workflows/run.yml`](./.github/workflows/run.yml)。当前定时表达式是：
+
+```yaml
+schedule:
+  - cron: "30 1 * * *"
+```
+
+GitHub Actions 使用 UTC 时间，`01:30 UTC` 对应北京时间每天 `09:30`。
+
+如果想改为北京时间每天 08:00：
+
+```yaml
+schedule:
+  - cron: "0 0 * * *"
+```
+
+GitHub 的定时任务可能因平台负载延迟几分钟，这是正常现象。
+
+## 网站如何检索论文
+
+网站支持：
+
+- `Category`：按 arXiv 学科分类查看。
+- `主题标签`：点击一个或多个规范标签筛选论文。
+- `Filter`：按个人关键词或作者偏好高亮论文。
+- 搜索按钮：在标题、作者、摘要、中文总结和标签中搜索文本。
+- 日历按钮：查看某一天或一个日期范围内的论文。
+
+也可以通过 URL 查询规范标签：
+
+```text
+https://<你的网站地址>/?tags=world-models,physical-ai
+```
+
+多个标签之间是“或”的关系。URL 标签模式会输出匹配论文的 JSON，方便其他脚本调用。
+
+## 30 个主题标签如何维护
+
+规范标签保存在 [`tag_catalog.json`](./tag_catalog.json)。每个标签包含：
 
 ```json
 {
-  "from_version": 1,
-  "to_version": 2,
-  "replace": {
-    "video-ai": ["video-generation", "world-models"]
-  }
+  "id": "world-models",
+  "label": "世界模型",
+  "terms": ["world model", "world simulator", "world simulation"]
 }
 ```
 
-提交后可以先在本地验证：
+- `id`：稳定的内部标识，不应随意修改。
+- `label`：网站展示的中文名称。
+- `terms`：从标题、摘要和已有中文总结中判断标签的代表性词组。
+
+系统会校验：
+
+- 标签数量必须保持在 25 到 35 个之间。
+- 当前默认维护 30 个标签。
+- 标签 `id` 不能重复。
+- 中文 `label` 不能重复。
+- 每个标签必须至少包含一个匹配词组。
+
+### 替换标签时的正确做法
+
+不能直接删除旧标签 ID。你需要提高 `schema_version`，并添加迁移记录。
+
+例如把旧标签 `video-ai` 拆成 `video-generation` 和 `world-models`：
+
+```json
+{
+  "schema_version": 2,
+  "tags": [
+    {
+      "id": "video-generation",
+      "label": "视频生成",
+      "terms": ["video generation"]
+    },
+    {
+      "id": "world-models",
+      "label": "世界模型",
+      "terms": ["world model"]
+    }
+  ],
+  "migrations": [
+    {
+      "from_version": 1,
+      "to_version": 2,
+      "replace": {
+        "video-ai": ["video-generation", "world-models"]
+      }
+    }
+  ]
+}
+```
+
+一对一替换写法：
+
+```json
+"replace": {
+  "old-tag": ["new-tag"]
+}
+```
+
+一对多拆分写法：
+
+```json
+"replace": {
+  "old-tag": ["new-tag-a", "new-tag-b"]
+}
+```
+
+迁移时 [`tag_papers.py`](./tag_papers.py) 只读取历史 JSONL 中已有的标题、摘要、中文总结和标签字段：
+
+- 不下载或读取 PDF。
+- 不重新调用 DeepSeek。
+- 不重新生成论文总结。
+- 可以重复运行，已经迁移完成的数据不会再次变化。
+
+本地验证命令：
 
 ```bash
 uv run python tag_papers.py --data-dir data
 uv run python -m unittest discover -s tests -v
 ```
 
-迁移链不连续、标签 ID/中文名重复、数量偏离约 30 个，或者旧标签无法迁移到当前标签时，任务会直接失败，避免历史标签被静默丢弃。
+## 本地运行
 
-## Search historical papers by keyword
+项目要求 Python 3.12 或更高版本，推荐使用 `uv`。
 
-`search_arxiv.py` searches all matching arXiv papers from oldest to newest and
-exports their titles, abstracts, authors, dates, categories, abstract links, and
-PDF links. The end date is inclusive, and searches are automatically paginated
-until the configured result limit has been reached.
+安装依赖：
 
-Set keywords in `keywords.txt` and the remaining search options in the
-configuration block near the top of `search_arxiv.py`, then run the script
-without arguments. `MAX_RESULTS` controls
-the maximum number of exported papers; set it to `None` to export every match.
-Add phrases to `keywords.txt`, and use `KEYWORD_OPERATOR = "OR"` to match any
-phrase or `"AND"` to require all phrases. Set `SEARCH_CATEGORIES = ["cs"]` for
-all computer science categories, list exact categories such as `cs.AI` and
-`cs.CV`, or use an empty list to search without a category restriction.
+```bash
+uv sync --frozen
+```
+
+设置环境变量：
+
+```bash
+export OPENAI_API_KEY="你的 DeepSeek API Key"
+export OPENAI_BASE_URL="https://api.deepseek.com"
+export MODEL_NAME="deepseek-chat"
+export LANGUAGE="Chinese"
+```
+
+执行与 GitHub Actions 接近的本地流程：
+
+```bash
+bash run.sh
+```
+
+仅启动静态网站：
+
+```bash
+python -m http.server 8000
+```
+
+然后访问：
+
+```text
+http://127.0.0.1:8000/
+```
+
+注意：网站默认从 GitHub 的 `data` 分支读取论文数据，因此本地页面展示的仍然可能是远程数据。
+
+## 历史论文检索和 EndNote 导出
+
+[`search_arxiv.py`](./search_arxiv.py) 用于检索较长时间范围内的历史论文。默认关键词同样来自 `keywords.txt`。
+
+直接使用文件中的配置：
 
 ```bash
 uv run python search_arxiv.py
 ```
 
-You can also override that setting for one run by passing one or more keywords:
+临时指定关键词、日期和 RIS 输出文件：
 
 ```bash
-uv run python search_arxiv.py "large language model" "vision language model" \
-  --start-date 2018-01-01 \
-  --end-date 2024-12-31 \
+uv run python search_arxiv.py \
+  "video world model" \
+  "spatial reasoning" \
+  --start-date 2020-01-01 \
+  --end-date 2026-12-31 \
   --output papers.ris
 ```
 
-The default output is an RIS file that can be imported directly into EndNote.
-Use `--output papers.csv` for CSV, `--output papers.jsonl` for JSON Lines,
-`--field title` to search titles only, or
-`--match all` to require every word instead of matching an exact phrase. Run
-`uv run python search_arxiv.py --help` for all options. arXiv requests are rate
-limited by default, so a large historical search can take some time.
+其他格式：
 
-The search resumes by default. It appends to the existing output and stores the
-next arXiv offset in `<output>.checkpoint.json`. If a request is rate limited or
-the process is interrupted, wait for arXiv access to recover and run the same
-command again. The query and output format must stay unchanged. Use a different
-output path for a different query. `--no-resume` explicitly discards the old
-output and starts over.
+```bash
+uv run python search_arxiv.py "world model" --output papers.csv
+uv run python search_arxiv.py "world model" --output papers.jsonl
+```
 
-# Contributors
-Thanks to the following special contributors for contributing code, discovering bugs, and sharing useful ideas for this project!!!
-<table>
-  <tbody>
-    <tr>
-      <td align="center" valign="top">
-        <a href="https://github.com/JianGuanTHU"><img src="https://avatars.githubusercontent.com/u/44895708?v=4" width="100px;" alt="JianGuanTHU"/><br /><sub><b>JianGuanTHU</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://github.com/Chi-hong22"><img src="https://avatars.githubusercontent.com/u/75403952?v=4" width="100px;" alt="Chi-hong22"/><br /><sub><b>Chi-hong22</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://github.com/chaozg"><img src="https://avatars.githubusercontent.com/u/69794131?v=4" width="100px;" alt="chaozg"/><br /><sub><b>chaozg</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://github.com/quantum-ctrl"><img src="https://avatars.githubusercontent.com/u/16505311?v=4" width="100px;" alt="quantum-ctrl"/><br /><sub><b>quantum-ctrl</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://github.com/Zhao2z"><img src="https://avatars.githubusercontent.com/u/141019403?v=4" width="100px;" alt="Zhao2z"/><br /><sub><b>Zhao2z</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://github.com/eclipse0922"><img src="https://avatars.githubusercontent.com/u/6214316?v=4" width="100px;" alt="eclipse0922"/><br /><sub><b>eclipse0922</b></sub></a><br />
-      </td>
-    </tr>
+历史检索支持断点续传。输出旁边会生成 `<输出文件>.checkpoint.json`；请求限流或程序中断后，使用相同参数重新运行即可继续。使用 `--no-resume` 可以覆盖旧结果并从头开始。
 
+## 常见问题
 
-  </tbody>
-  <tbody>
-   <tr>
-      <td align="center" valign="top">
-        <a href="https://github.com/xuemian168"><img src="https://avatars.githubusercontent.com/u/38741078?v=4" width="100px;" alt="xuemian168"/><br /><sub><b>xuemian168</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://github.com/Lrrrr549"><img src="https://avatars.githubusercontent.com/u/71866027?v=4" width="100px;" alt="Lrrrr549"/><br /><sub><b>Lrrrr549</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://github.com/AinzRimuru"><img src="https://avatars.githubusercontent.com/u/59441476?v=4" width="100px;" alt="AinzRimuru"/><br /><sub><b>AinzRimuru</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://github.com/fengxueguiren"><img src="https://avatars.githubusercontent.com/u/153522370?v=4" width="100px;" alt="fengxueguiren"/><br /><sub><b>fengxueguiren</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://github.com/zerocpp"><img src="https://avatars.githubusercontent.com/u/2630297?v=4" width="100px;" alt="fengxueguiren"/><br /><sub><b>zerocpp</b></sub></a><br />
-      </td>
-   </tr>
-  </tbody>
-</table>
+### Actions 提示没有写权限
 
-# Acknowledgement
-We sincerely thank the following individuals and organizations for their promotion and support!!!
-<table>
-  <tbody>
-    <tr>
-      <td align="center" valign="top">
-        <a href="https://x.com/GitHub_Daily/status/1930610556731318781"><img src="https://pbs.twimg.com/profile_images/1660876795347111937/EIo6fIr4_400x400.jpg" width="100px;" alt="Github_Daily"/><br /><sub><b>Github_Daily</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://x.com/aigclink/status/1930897858963853746"><img src="https://pbs.twimg.com/profile_images/1729450995850027008/gllXr6bh_400x400.jpg" width="100px;" alt="AIGCLINK"/><br /><sub><b>AIGCLINK</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://www.ruanyifeng.com/blog/2025/06/weekly-issue-353.html"><img src="https://avatars.githubusercontent.com/u/905434" width="100px;" alt="阮一峰的网络日志"/><br /><sub><b>阮一峰的网络日志 <br> 科技爱好者周刊 <br> （第 353 期）</b></sub></a><br />
-      </td>
-      <td align="center" valign="top">
-        <a href="https://hellogithub.com/periodical/volume/111"><img src="https://github.com/user-attachments/assets/eff6b6dd-0323-40c4-9db6-444a51bbc80a" width="100px;" alt="《HelloGitHub》第 111 期"/><br /><sub><b>《HelloGitHub》<br> 月刊第 111 期</b></sub></a><br />
-      </td>
-    </tr>
-  </tbody>
-</table>
+检查：
 
+```text
+Settings -> Actions -> General -> Workflow permissions
+```
 
-# Star history
+必须选择 `Read and write permissions`。同时检查 `main` 分支保护规则是否阻止机器人提交。
 
-[![Stargazers over time](https://starchart.cc/dw-dengwei/daily-arXiv-ai-enhanced.svg?variant=adaptive)](https://starchart.cc/dw-dengwei/daily-arXiv-ai-enhanced)
+### 提示 OPENAI_API_KEY 不存在或认证失败
 
-# Buy me a coffee
-[here](./buy-me-a-coffee/README.md)
+检查 Secret 名称是否严格为：
+
+```text
+OPENAI_API_KEY
+```
+
+确认它创建在 `Repository secrets` 中，而不是 Variables 中。还要确认 DeepSeek 账号有可用余额。
+
+### 提示模型不存在
+
+检查 Variables：
+
+```text
+MODEL_NAME = deepseek-chat
+```
+
+检查 Secret：
+
+```text
+OPENAI_BASE_URL = https://api.deepseek.com
+```
+
+模型名不要添加引号。
+
+### 工作流成功，但当天没有论文
+
+这通常表示最近的论文没有命中关键词，或者已经存在于历史数据中。可以：
+
+- 扩展 `keywords.txt`。
+- 增大 `LOOKBACK_DAYS`。
+- 确认没有设置过窄的 `CATEGORIES`。
+- 查看 `Fetch recent arXiv papers by keyword` 步骤中的查询日志。
+
+### Pages 打开后没有数据
+
+依次检查：
+
+1. Actions 是否至少成功运行过一次。
+2. 仓库中是否已经存在 `data` 分支。
+3. Pages 是否选择 `main` 和 `/(root)`。
+4. `js/data-config.js` 中是否已经变成你自己的仓库用户名和仓库名。
+5. 如果仓库是私有仓库，浏览器可能无法匿名读取 Raw 数据；推荐将用于公开 Pages 的仓库设为 Public。
+
+### DeepSeek 调用费用太高
+
+可以：
+
+- 缩小 `keywords.txt`。
+- 设置 `CATEGORIES` 限制学科。
+- 降低 `DAILY_PAPER_LIMIT`。
+- 先手动运行并观察每日命中数量，再决定自动任务配置。
+
+## 关键文件说明
+
+| 文件 | 用途 |
+| --- | --- |
+| [`keywords.txt`](./keywords.txt) | 每日抓取和历史检索共用的关键词 |
+| [`fetch_daily.py`](./fetch_daily.py) | 查询近期 arXiv 论文并做历史去重 |
+| [`ai/enhance.py`](./ai/enhance.py) | 调用模型生成论文总结 |
+| [`tag_catalog.json`](./tag_catalog.json) | 30 个规范主题标签和迁移记录 |
+| [`tag_papers.py`](./tag_papers.py) | 为论文打标签并迁移旧标签 |
+| [`index.html`](./index.html) | 网站首页 |
+| [`js/app.js`](./js/app.js) | 网站加载、搜索、标签筛选逻辑 |
+| [`.github/workflows/run.yml`](./.github/workflows/run.yml) | 每日自动任务和数据提交流程 |
+| [`search_arxiv.py`](./search_arxiv.py) | 历史论文检索及 RIS/CSV/JSONL 导出 |
+
+## 安全建议
+
+- 永远不要把 API Key 提交到 Git。
+- 不要在 Actions 日志中打印 API Key。
+- 定期检查 DeepSeek API 用量和余额。
+- API Key 泄露后应立即在 DeepSeek 平台撤销并重新创建。
+- 公开网站上的 AI 总结必须人工甄别，不能代替原论文。
+
+## 验证项目
+
+运行全部自动测试：
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
+
+检查 JavaScript 语法：
+
+```bash
+node --check js/app.js
+```
+
+检查本地流程脚本：
+
+```bash
+bash -n run.sh
+```
+
+## 开源许可与致谢
+
+项目使用 Apache-2.0 License，详见 [`LICENSE`](./LICENSE)。本项目基于 `daily-arXiv-ai-enhanced` 继续开发，感谢原项目作者和所有贡献者。
