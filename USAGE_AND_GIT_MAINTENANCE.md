@@ -62,13 +62,13 @@ API Key、Token 和密码只能放在 Secrets 中，不要写入代码、提交�
 
 | 名称 | 示例 | 说明 |
 | --- | --- | --- |
-| `CATEGORIES` | `cs.AI, cs.CL, cs.CV` | arXiv 分类，使用英文逗号分隔 |
+| `CATEGORIES` | 留空 | 可选的 arXiv 分类限制；留空查询全部学科 |
 | `LANGUAGE` | `Chinese` | AI 摘要的输出语言 |
 | `MODEL_NAME` | `deepseek-chat` | 与 API 服务匹配的模型名称 |
 | `EMAIL` | `your-email@example.com` | Actions 自动提交时使用的 Git 邮箱 |
 | `NAME` | `Your Name` | Actions 自动提交时使用的 Git 用户名 |
 
-上述五个 Variables 建议全部配置。尤其不要把 `CATEGORIES` 留空，否则爬虫会构造无效的分类地址。
+`LANGUAGE` 和 `MODEL_NAME` 建议配置。`CATEGORIES` 应默认留空，以便关键词查询覆盖全部 arXiv 学科；只有需要主动缩小范围时才填写。
 
 ### 2.4 手动测试工作流
 
@@ -172,7 +172,7 @@ export OPENAI_API_KEY="your-api-key"
 export OPENAI_BASE_URL="your-openai-compatible-base-url"
 export MODEL_NAME="deepseek-chat"
 export LANGUAGE="Chinese"
-export CATEGORIES="cs.AI, cs.CL, cs.CV"
+export CATEGORIES=""  # 留空查询全部 arXiv 学科
 export TOKEN_GITHUB="your-optional-github-token"
 ```
 
@@ -503,7 +503,7 @@ git diff pyproject.toml uv.lock
 
 ### 工作流抓取不到论文
 
-确认 `CATEGORIES` 使用合法的 arXiv 分类和英文逗号，例如 `cs.AI, cs.CL`；再查看 Actions 中 `Crawl arXiv papers` 的日志。
+查看 Actions 中 `Fetch recent arXiv papers by keyword` 的日志。若设置了 `CATEGORIES`，确认它使用合法的 arXiv 分类和英文逗号，例如 `cs.AI, cs.CL`；留空则查询全部学科。
 
 ### AI 摘要失败
 

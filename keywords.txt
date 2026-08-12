@@ -1,0 +1,44 @@
+# One keyword or phrase per line. Matching is case-insensitive and searches
+# both the paper title and abstract. Lines beginning with # are ignored.
+
+# Physically plausible video generation
+physically plausible video generation
+physics-aware video generation
+physics-informed video generation
+physical consistency in video generation
+dynamics-aware video generation
+
+# Video generation and world models
+video world model
+generative world model
+interactive world model
+world simulator
+controllable video generation
+video diffusion model
+text-to-video generation
+image-to-video generation
+video prediction
+
+# 3D understanding
+3D scene understanding
+3D representation learning
+dynamic 3D scene understanding
+4D scene understanding
+3D visual grounding
+
+# Spatial understanding
+spatial understanding
+spatial reasoning
+spatial intelligence
+visual spatial reasoning
+spatiotemporal understanding
+spatiotemporal reasoning
+
+# Physical understanding
+physical reasoning
+intuitive physics
+physical commonsense reasoning
+physical scene understanding
+object dynamics prediction
+visual dynamics prediction
+physics-aware world model

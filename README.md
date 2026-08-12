@@ -43,9 +43,69 @@ https://github.com/user-attachments/assets/b25712a4-fb8d-484f-863d-e8da6922f9d7
 
 
 # How to use
-This repo will daily crawl arXiv papers about **cs.CV, cs.GR, cs.CL and cs.AI**, and use **DeepSeek** to summarize the papers in **Chinese**.
-If you wish to crawl other arXiv categories, use other LLMs, or other languages, please follow the instructions.
+This repo searches recent papers across **all arXiv fields** using your shared keyword list, and uses an OpenAI-compatible model such as **DeepSeek** to summarize them in **Chinese**.
+You can optionally restrict arXiv categories, change the model, or change the output language in GitHub Actions variables.
 Otherwise, you can watch the video above first and directly use this repo in https://dw-dengwei.github.io/daily-arXiv-ai-enhanced/. Please star it if you like :)
+
+## 部署到你自己的 GitHub，每日按关键词更新
+
+1. 修改仓库根目录的 [`keywords.txt`](./keywords.txt)：每行一个关键词或短语，`#` 开头的行是注释。每日任务直接通过 arXiv API 在标题和摘要中查询，命中任意一条就保留；默认覆盖所有 arXiv 学科。
+2. 把仓库推送到你自己的 GitHub，或在 GitHub 上 Fork 后提交对 `keywords.txt` 的修改。
+3. 打开仓库的 `Settings -> Actions -> General`，在 `Workflow permissions` 中选择 `Read and write permissions`。
+4. 在 `Settings -> Secrets and variables -> Actions` 中添加下方列出的 Secrets 和 Variables。
+5. 打开 `Actions`，如果 GitHub 提示 Fork 的工作流已停用，先点击 `I understand my workflows, go ahead and enable them`；然后进入 `arXiv-daily-ai-enhanced -> Run workflow` 手动测试一次。正常运行后，任务会在每天北京时间 09:30 自动执行。
+6. 打开 `Settings -> Pages`，选择 `Deploy from a branch`，分支设为 `main`，目录设为 `/(root)`。页面地址是 `https://<你的用户名>.github.io/<仓库名>/`。
+
+必需的 Secrets：
+
+- `OPENAI_API_KEY`：用于生成论文摘要的模型 API Key。
+- `OPENAI_BASE_URL`：OpenAI 兼容接口地址，例如 DeepSeek 的 `https://api.deepseek.com`。
+
+建议添加的 Variables：
+
+- `CATEGORIES`：可选。留空代表查询全部 arXiv 学科；只有确实要缩小范围时才填写，例如 `cs.AI, cs.CV, cs.LG`。
+- `LANGUAGE`：摘要语言，例如 `Chinese`。
+- `MODEL_NAME`：模型名，例如 `deepseek-chat`。
+- `LOOKBACK_DAYS`：每日回看天数，默认 `7`，用于覆盖周末、延迟发布和临时失败。
+- `DAILY_PAPER_LIMIT`：每日最多处理的新论文数，默认 `500`。
+- `EMAIL`、`NAME`：可选的自动提交身份；未设置时使用 `github-actions[bot]`。
+
+`ACCESS_PASSWORD` 和 `TOKEN_GITHUB` 是可选 Secret。前者控制网页访问密码，后者仅用于查询论文中 GitHub 项目的额外信息。GitHub 定时表达式使用 UTC；当前 `30 1 * * *` 对应北京时间每天 09:30。
+
+## 主题标签库与向下兼容更新
+
+[`tag_catalog.json`](./tag_catalog.json) 是网站的规范主题标签库，目前包含 30 个不重复标签。每个标签包括稳定的英文 `id`、网页显示的中文 `label`，以及用于从标题、摘要和已保存 AI 总结打标的 `terms`。网页会显示这些标签，并支持点击一个或多个标签检索论文。
+
+也可以通过 URL 按标签查询，例如 `?tags=world-models,physical-ai`。多个标签之间是“或”关系；该模式会输出匹配论文的 JSON，适合分享检索条件或供其他工具调用。
+
+标签更新不读取 PDF，也不重新调用大模型。每日工作流会运行 `tag_papers.py`，只根据仓库中已经保存的标题、摘要、中文总结和旧 `tags` 字段更新 JSONL。首次为旧论文补标签后，后续更新只执行版本迁移。
+
+替换标签时必须同时维护迁移记录：
+
+1. 将 `schema_version` 加一。
+2. 在 `tags` 中加入新的规范标签，并删除被替换的旧标签。
+3. 在 `migrations` 末尾追加连续版本迁移。一个旧标签可以映射到一个或多个新标签。
+
+例如将旧标签 `video-ai` 拆成两个标签：
+
+```json
+{
+  "from_version": 1,
+  "to_version": 2,
+  "replace": {
+    "video-ai": ["video-generation", "world-models"]
+  }
+}
+```
+
+提交后可以先在本地验证：
+
+```bash
+uv run python tag_papers.py --data-dir data
+uv run python -m unittest discover -s tests -v
+```
+
+迁移链不连续、标签 ID/中文名重复、数量偏离约 30 个，或者旧标签无法迁移到当前标签时，任务会直接失败，避免历史标签被静默丢弃。
 
 ## Search historical papers by keyword
 
@@ -54,10 +114,11 @@ exports their titles, abstracts, authors, dates, categories, abstract links, and
 PDF links. The end date is inclusive, and searches are automatically paginated
 until the configured result limit has been reached.
 
-Set the search options in the configuration block near the top of
-`search_arxiv.py`, then run the script without arguments. `MAX_RESULTS` controls
+Set keywords in `keywords.txt` and the remaining search options in the
+configuration block near the top of `search_arxiv.py`, then run the script
+without arguments. `MAX_RESULTS` controls
 the maximum number of exported papers; set it to `None` to export every match.
-Add phrases to `SEARCH_KEYWORDS`, and use `KEYWORD_OPERATOR = "OR"` to match any
+Add phrases to `keywords.txt`, and use `KEYWORD_OPERATOR = "OR"` to match any
 phrase or `"AND"` to require all phrases. Set `SEARCH_CATEGORIES = ["cs"]` for
 all computer science categories, list exact categories such as `cs.AI` and
 `cs.CV`, or use an empty list to search without a category restriction.
@@ -82,26 +143,12 @@ Use `--output papers.csv` for CSV, `--output papers.jsonl` for JSON Lines,
 `uv run python search_arxiv.py --help` for all options. arXiv requests are rate
 limited by default, so a large historical search can take some time.
 
-<details>
-   <summary> If you want to customize categories, LLMs, or languages, click here.  </summary>
-
-## Instructions
-1. Fork this repo to your own account and delete my own information in [buy-me-a-coffee](./buy-me-a-coffee/README.md).
-2. Go to: your-own-repo -> Settings -> Secrets and variables -> Actions
-3. Go to Secrets. Secrets are encrypted and used for sensitive data
-4. Create two repository secrets named `OPENAI_API_KEY` and `OPENAI_BASE_URL`, and input corresponding values.
-5. [Optional] Set a password in `secrets.ACCESS_PASSWORD` if you do not wish others to access your page. (see https://github.com/dw-dengwei/daily-arXiv-ai-enhanced/pull/64)
-6. Go to Variables. Variables are shown as plain text and are used for non-sensitive data
-7. Create the following repository variables:
-   1. `CATEGORIES`: separate the categories with ",", such as "cs.CL, cs.CV"
-   2. `LANGUAGE`: such as "Chinese" or "English"
-   3. `MODEL_NAME`: such as "deepseek-chat"
-   4. `EMAIL`: your email for push to GitHub
-   5. `NAME`: your name for push to GitHub
-8. Go to your-own-repo -> Actions -> arXiv-daily-ai-enhanced
-9. You can manually click **Run workflow** to test if it works well (it may take about one hour). By default, this action will automatically run every day. You can modify it in `.github/workflows/run.yml`
-10. Set up GitHub pages: Go to your own repo -> Settings -> Pages. In `Build and deployment`, set `Source="Deploy from a branch"`, `Branch="main", "/(root)"`. Wait for a few minutes, go to https://\<username\>.github.io/daily-arXiv-ai-enhanced/. Please see this [issue](https://github.com/dw-dengwei/daily-arXiv-ai-enhanced/issues/14) for more precise instructions.
-</details>
+The search resumes by default. It appends to the existing output and stores the
+next arXiv offset in `<output>.checkpoint.json`. If a request is rate limited or
+the process is interrupted, wait for arXiv access to recover and run the same
+command again. The query and output format must stay unchanged. Use a different
+output path for a different query. `--no-resume` explicitly discards the old
+output and starts over.
 
 # Contributors
 Thanks to the following special contributors for contributing code, discovering bugs, and sharing useful ideas for this project!!!

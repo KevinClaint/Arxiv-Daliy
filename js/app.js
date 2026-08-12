@@ -6,6 +6,7 @@ let urlCategoryParam = null; // 从URL参数中获取的category
 let urlJsonParam = null; // 从URL参数中获取的json（API模式）
 let urlAuthorParam = null; // 从URL参数中获取的author
 let urlKeywordsParam = null; // 从URL参数中获取的keywords
+let urlTagsParam = null; // 从URL参数中获取的规范主题标签
 let paperData = {};
 let flatpickrInstance = null;
 let isRangeMode = false;
@@ -18,6 +19,65 @@ let currentFilteredPapers = []; // 当前过滤后的论文列表
 let textSearchQuery = ''; // 实时文本搜索查询
 let previousActiveKeywords = null; // 文本搜索激活时，暂存之前的关键词激活集合
 let previousActiveAuthors = null; // 文本搜索激活时，暂存之前的作者激活集合
+let systemTagCatalog = [];
+let systemTagById = new Map();
+let activeSystemTags = [];
+
+async function loadSystemTagCatalog() {
+  try {
+    const response = await fetch('tag_catalog.json');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const catalog = await response.json();
+    systemTagCatalog = Array.isArray(catalog.tags) ? catalog.tags : [];
+    systemTagById = new Map(systemTagCatalog.map(tag => [tag.id, tag]));
+  } catch (error) {
+    console.error('加载主题标签失败:', error);
+    systemTagCatalog = [];
+    systemTagById = new Map();
+  }
+}
+
+function getSystemTagLabel(tagId) {
+  return systemTagById.get(tagId)?.label || tagId;
+}
+
+function renderSystemTagFilter() {
+  const container = document.getElementById('systemTags');
+  if (!container) return;
+  const counts = new Map(systemTagCatalog.map(tag => [tag.id, 0]));
+  Object.values(paperData).flat().forEach(paper => {
+    (paper.tags || []).forEach(tagId => counts.set(tagId, (counts.get(tagId) || 0) + 1));
+  });
+
+  container.innerHTML = '';
+  const allButton = document.createElement('button');
+  allButton.className = `category-button system-tag-button ${activeSystemTags.length === 0 ? 'active' : ''}`;
+  allButton.dataset.systemTag = 'all';
+  allButton.textContent = '全部';
+  allButton.addEventListener('click', () => {
+    activeSystemTags = [];
+    renderSystemTagFilter();
+    renderPapers();
+  });
+  container.appendChild(allButton);
+
+  systemTagCatalog.forEach(tag => {
+    const count = counts.get(tag.id) || 0;
+    const button = document.createElement('button');
+    button.className = `category-button system-tag-button ${activeSystemTags.includes(tag.id) ? 'active' : ''}`;
+    button.dataset.systemTag = tag.id;
+    button.disabled = count === 0;
+    button.innerHTML = `${tag.label}<span class="category-count">${count}</span>`;
+    button.addEventListener('click', () => {
+      activeSystemTags = activeSystemTags.includes(tag.id)
+        ? activeSystemTags.filter(item => item !== tag.id)
+        : [...activeSystemTags, tag.id];
+      renderSystemTagFilter();
+      renderPapers();
+    });
+    container.appendChild(button);
+  });
+}
 
 // 加载用户的关键词设置
 function loadUserKeywords() {
@@ -239,9 +299,15 @@ function getUrlKeywords() {
   return keywords ? decodeURIComponent(keywords).split(',').map(k => k.trim()).filter(k => k) : null;
 }
 
+function getUrlTags() {
+  const params = new URLSearchParams(window.location.search);
+  const tags = params.get('tags');
+  return tags ? decodeURIComponent(tags).split(',').map(tag => tag.trim()).filter(Boolean) : null;
+}
+
 // 检查是否以JSON模式运行
 function isJsonMode() {
-  return getUrlCategory() !== null || getJsonParam() !== null || getUrlAuthor() !== null || getUrlKeywords() !== null;
+  return getUrlCategory() !== null || getJsonParam() !== null || getUrlAuthor() !== null || getUrlKeywords() !== null || getUrlTags() !== null;
 }
 
 // 输出JSON格式的论文数据
@@ -250,12 +316,14 @@ function outputJsonData(papers, category) {
     category: category,
     author: urlAuthorParam || null,
     keywords: urlKeywordsParam || null,
+    tags: urlTagsParam || null,
     count: papers.length,
     papers: papers.map(p => ({
       id: p.id,
       title: p.title,
       authors: p.authors,
       categories: p.category,
+      tags: p.tags,
       summary: p.summary,
       date: p.date,
       url: p.url,
@@ -367,7 +435,7 @@ function matchPapersByKeywordsOrAuthor(papers, keywords, author) {
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initEventListeners();
 
   fetchGitHubStats();
@@ -383,17 +451,21 @@ document.addEventListener('DOMContentLoaded', () => {
   urlJsonParam = getJsonParam();
   urlAuthorParam = getUrlAuthor();
   urlKeywordsParam = getUrlKeywords();
+  urlTagsParam = getUrlTags();
+  if (urlTagsParam) activeSystemTags = [...urlTagsParam];
 
-  fetchAvailableDates().then(() => {
-    if (availableDates.length > 0) {
-      loadPapersByDate(availableDates[0]);
-    }
-  });
+  await Promise.all([loadSystemTagCatalog(), fetchAvailableDates()]);
+  renderSystemTagFilter();
+  if (availableDates.length > 0) {
+    loadPapersByDate(availableDates[0]);
+  }
 });
 
 async function fetchGitHubStats() {
   try {
-    const response = await fetch('https://api.github.com/repos/dw-dengwei/daily-arXiv-ai-enhanced');
+    const response = await fetch(
+      `https://api.github.com/repos/${DATA_CONFIG.repoOwner}/${DATA_CONFIG.repoName}`
+    );
     const data = await response.json();
     const starCount = data.stargazers_count;
     const forkCount = data.forks_count;
@@ -509,6 +581,7 @@ function initEventListeners() {
   const categoryScroll = document.querySelector('.category-scroll');
   const keywordScroll = document.querySelector('.keyword-scroll');
   const authorScroll = document.querySelector('.author-scroll');
+  const topicScroll = document.querySelector('.topic-scroll');
   
   // 为类别滚动添加鼠标滚轮事件
   if (categoryScroll) {
@@ -533,6 +606,14 @@ function initEventListeners() {
   // 为作者滚动添加鼠标滚轮事件
   if (authorScroll) {
     authorScroll.addEventListener('wheel', function(e) {
+      if (e.deltaY !== 0) {
+        e.preventDefault();
+        this.scrollLeft += e.deltaY;
+      }
+    });
+  }
+  if (topicScroll) {
+    topicScroll.addEventListener('wheel', function(e) {
       if (e.deltaY !== 0) {
         e.preventDefault();
         this.scrollLeft += e.deltaY;
@@ -862,9 +943,10 @@ async function loadPapersByDate(date) {
     const categories = getAllCategories(paperData);
 
     renderCategoryFilter(categories);
+    renderSystemTagFilter();
 
     // 如果URL中有category、json、author或keywords参数，直接返回JSON
-    const hasJsonParams = urlCategoryParam !== null || urlJsonParam !== null || urlAuthorParam !== null || urlKeywordsParam !== null;
+    const hasJsonParams = urlCategoryParam !== null || urlJsonParam !== null || urlAuthorParam !== null || urlKeywordsParam !== null || urlTagsParam !== null;
     if (hasJsonParams) {
       // 获取基础论文列表（按category或all）
       const targetCategory = urlCategoryParam || urlJsonParam || 'all';
@@ -873,6 +955,13 @@ async function loadPapersByDate(date) {
       // 应用keywords和author匹配（"或"关系）
       if (urlKeywordsParam || urlAuthorParam) {
         papers = matchPapersByKeywordsOrAuthor(papers, urlKeywordsParam, urlAuthorParam);
+      }
+
+      if (urlTagsParam) {
+        papers = papers.filter(paper =>
+          urlTagsParam.some(tagId => (paper.tags || []).includes(tagId))
+        );
+        papers = papers.map(paper => ({ ...paper, isMatched: true }));
       }
 
       // JSON模式：只返回匹配的论文
@@ -930,6 +1019,8 @@ function parseJsonlData(jsonlText, date) {
         method: paper.AI && paper.AI.method ? paper.AI.method : '',
         result: paper.AI && paper.AI.result ? paper.AI.result : '',
         conclusion: paper.AI && paper.AI.conclusion ? paper.AI.conclusion : '',
+        tags: Array.isArray(paper.tags) ? paper.tags : [],
+        tagSchemaVersion: paper.tag_schema_version || null,
         code_url: paper.code_url || '',
         code_stars: paper.code_stars || 0,
         code_last_update: paper.code_last_update || ''
@@ -1114,6 +1205,12 @@ function renderPapers() {
   // 创建匹配论文的集合
   let filteredPapers = [...papers];
 
+  if (activeSystemTags.length > 0) {
+    filteredPapers = filteredPapers.filter(paper =>
+      activeSystemTags.some(tagId => (paper.tags || []).includes(tagId))
+    );
+  }
+
   // 重置所有论文的匹配状态，避免上次渲染的残留
   filteredPapers.forEach(p => {
     p.isMatched = false;
@@ -1135,7 +1232,8 @@ function renderPapers() {
         a.motivation || '',
         a.method || '',
         a.result || '',
-        a.conclusion || ''
+        a.conclusion || '',
+        (a.tags || []).map(getSystemTagLabel).join(' ')
       ].join(' ').toLowerCase();
       const hayB = [
         b.title,
@@ -1146,7 +1244,8 @@ function renderPapers() {
         b.motivation || '',
         b.method || '',
         b.result || '',
-        b.conclusion || ''
+        b.conclusion || '',
+        (b.tags || []).map(getSystemTagLabel).join(' ')
       ].join(' ').toLowerCase();
       const am = hayA.includes(q);
       const bm = hayB.includes(q);
@@ -1166,7 +1265,8 @@ function renderPapers() {
         p.motivation || '',
         p.method || '',
         p.result || '',
-        p.conclusion || ''
+        p.conclusion || '',
+        (p.tags || []).map(getSystemTagLabel).join(' ')
       ].join(' ').toLowerCase();
       const matched = hay.includes(q);
       p.isMatched = matched;
@@ -1356,6 +1456,9 @@ function renderPapers() {
     const categoryTags = paper.allCategories ? 
       paper.allCategories.map(cat => `<span class="category-tag">${cat}</span>`).join('') : 
       `<span class="category-tag">${paper.category}</span>`;
+    const topicTags = (paper.tags || []).map(tagId =>
+      `<button class="paper-topic-tag" data-card-tag="${tagId}">${getSystemTagLabel(tagId)}</button>`
+    ).join('');
     
     // 组合需要高亮的词：关键词 + 文本搜索
     const titleSummaryTerms = [];
@@ -1408,6 +1511,7 @@ function renderPapers() {
         <div class="paper-card-categories">
           ${categoryTags}
         </div>
+        ${topicTags ? `<div class="paper-card-topics">${topicTags}</div>` : ''}
       </div>
       <div class="paper-card-body">
         <p class="paper-card-summary">${highlightedSummary}</p>
@@ -1423,6 +1527,15 @@ function renderPapers() {
     paperCard.addEventListener('click', () => {
       currentPaperIndex = index; // 记录当前点击的论文索引
       showPaperDetails(paper, index + 1);
+    });
+    paperCard.querySelectorAll('[data-card-tag]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        activeSystemTags = [button.dataset.cardTag];
+        renderSystemTagFilter();
+        renderPapers();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
     });
     
     container.appendChild(paperCard);
@@ -1503,6 +1616,7 @@ function showPaperDetails(paper, paperIndex) {
     <div class="paper-details ${matchedPaperClass}">
       <p><strong>Authors: </strong>${highlightedAuthors}</p>
       <p><strong>Categories: </strong>${categoryDisplay}</p>
+      ${(paper.tags || []).length ? `<div class="modal-topic-tags">${paper.tags.map(tagId => `<span class="paper-topic-tag">${getSystemTagLabel(tagId)}</span>`).join('')}</div>` : ''}
       <p><strong>Date: </strong>${formatDate(paper.date)}</p>
       
       
@@ -1727,9 +1841,10 @@ async function loadPapersByDateRange(startDate, endDate) {
     const categories = getAllCategories(paperData);
 
     renderCategoryFilter(categories);
+    renderSystemTagFilter();
 
     // 如果URL中有category、json、author或keywords参数，直接返回JSON
-    const hasJsonParams = urlCategoryParam !== null || urlJsonParam !== null || urlAuthorParam !== null || urlKeywordsParam !== null;
+    const hasJsonParams = urlCategoryParam !== null || urlJsonParam !== null || urlAuthorParam !== null || urlKeywordsParam !== null || urlTagsParam !== null;
     if (hasJsonParams) {
       // 获取基础论文列表（按category或all）
       const targetCategory = urlCategoryParam || urlJsonParam || 'all';
@@ -1738,6 +1853,13 @@ async function loadPapersByDateRange(startDate, endDate) {
       // 应用keywords和author匹配（"或"关系）
       if (urlKeywordsParam || urlAuthorParam) {
         papers = matchPapersByKeywordsOrAuthor(papers, urlKeywordsParam, urlAuthorParam);
+      }
+
+      if (urlTagsParam) {
+        papers = papers.filter(paper =>
+          urlTagsParam.some(tagId => (paper.tags || []).includes(tagId))
+        );
+        papers = papers.map(paper => ({ ...paper, isMatched: true }));
       }
 
       // JSON模式：只返回匹配的论文

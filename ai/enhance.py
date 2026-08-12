@@ -11,6 +11,7 @@ import requests
 
 import dotenv
 import argparse
+from pathlib import Path
 from tqdm import tqdm
 
 import langchain_core.exceptions
@@ -20,12 +21,16 @@ from langchain.prompts import (
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
-from structure import Structure
+try:
+    from .structure import Structure
+except ImportError:  # Support `cd ai && python enhance.py` used by the workflow.
+    from structure import Structure
 
 if os.path.exists('.env'):
     dotenv.load_dotenv()
-template = open("template.txt", "r").read()
-system = open("system.txt", "r").read()
+AI_DIR = Path(__file__).resolve().parent
+template = (AI_DIR / "template.txt").read_text(encoding="utf-8")
+system = (AI_DIR / "system.txt").read_text(encoding="utf-8")
 
 def parse_args():
     """解析命令行参数"""
@@ -116,13 +121,22 @@ def process_single_item(chain, item: Dict, language: str) -> Dict:
 
     """处理单个数据项"""
     # Default structure with meaningful fallback values
-    default_ai_fields = {
-        "tldr": "Summary generation failed",
-        "motivation": "Motivation analysis unavailable",
-        "method": "Method extraction failed",
-        "result": "Result analysis unavailable",
-        "conclusion": "Conclusion extraction failed"
-    }
+    if language.casefold().startswith("chinese"):
+        default_ai_fields = {
+            "tldr": "中文总结生成失败，请查看原始摘要。",
+            "motivation": "暂未生成研究动机分析。",
+            "method": "暂未生成方法分析。",
+            "result": "暂未生成实验结果分析。",
+            "conclusion": "暂未生成结论分析。",
+        }
+    else:
+        default_ai_fields = {
+            "tldr": "Summary generation failed; see the original abstract.",
+            "motivation": "Motivation analysis unavailable.",
+            "method": "Method analysis unavailable.",
+            "result": "Result analysis unavailable.",
+            "conclusion": "Conclusion analysis unavailable.",
+        }
     
     try:
         response: Structure = chain.invoke({
@@ -204,12 +218,17 @@ def process_all_items(data: List[Dict], model_name: str, language: str, max_work
                 print(f"Item at index {idx} generated an exception: {e}", file=sys.stderr)
                 # Add default AI fields to ensure consistency
                 processed_data[idx] = data[idx]
+                fallback = (
+                    "处理失败，请查看原始摘要。"
+                    if language.casefold().startswith("chinese")
+                    else "Processing failed; see the original abstract."
+                )
                 processed_data[idx]['AI'] = {
-                    "tldr": "Processing failed",
-                    "motivation": "Processing failed",
-                    "method": "Processing failed",
-                    "result": "Processing failed",
-                    "conclusion": "Processing failed"
+                    "tldr": fallback,
+                    "motivation": fallback,
+                    "method": fallback,
+                    "result": fallback,
+                    "conclusion": fallback,
                 }
     
     return processed_data

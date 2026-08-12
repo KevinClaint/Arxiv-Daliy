@@ -11,7 +11,8 @@
 import json
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
+from pathlib import Path
 
 def load_papers_data(file_path):
     """
@@ -75,8 +76,6 @@ def perform_deduplication():
 
     today = datetime.now().strftime("%Y-%m-%d")
     today_file = f"../data/{today}.jsonl"
-    history_days = 7  # 向前追溯几天的数据进行对比
-
     if not os.path.exists(today_file):
         print("今日数据文件不存在 / Today's data file does not exist", file=sys.stderr)
         return "no_data"
@@ -86,17 +85,22 @@ def perform_deduplication():
         print(f"今日论文总数: {len(today_papers)} / Today's total papers: {len(today_papers)}", file=sys.stderr)
 
         if not today_papers:
+            try:
+                os.remove(today_file)
+            except OSError:
+                pass
             return "no_data"
 
-        # 收集历史多日 ID 集合
+        # 收集全部历史 ID。数据量只涉及本仓库 JSONL 元数据，不读取 PDF。
         history_ids = set()
-        for i in range(1, history_days + 1):
-            date_str = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-            history_file = f"../data/{date_str}.jsonl"
-            _, past_ids = load_papers_data(history_file)
+        today_path = Path(today_file).resolve()
+        for history_file in Path("../data").glob("*.jsonl"):
+            if history_file.resolve() == today_path:
+                continue
+            _, past_ids = load_papers_data(str(history_file))
             history_ids.update(past_ids)
 
-        print(f"历史{history_days}日去重库大小: {len(history_ids)} / History {history_days} days deduplication library size: {len(history_ids)}", file=sys.stderr)
+        print(f"全部历史去重库大小: {len(history_ids)} / Full history deduplication library size: {len(history_ids)}", file=sys.stderr)
 
         duplicate_ids = today_ids & history_ids
 
@@ -162,4 +166,4 @@ def main():
         sys.exit(2)
 
 if __name__ == "__main__":
-    main() 
+    main()

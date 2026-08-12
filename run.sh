@@ -23,7 +23,7 @@ if [ -z "$OPENAI_API_KEY" ]; then
     echo "🔧 可选变量 / Optional variables:"
     echo "   export OPENAI_BASE_URL=\"https://api.openai.com/v1\"  # API基础URL / API base URL"
     echo "   export LANGUAGE=\"Chinese\"                           # 语言设置 / Language setting"
-    echo "   export CATEGORIES=\"cs.CV, cs.CL\"                    # 关注分类 / Categories of interest"
+    echo "   export CATEGORIES=\"\"                               # 留空查询全部arXiv / Empty means all arXiv"
     echo "   export MODEL_NAME=\"gpt-4o-mini\"                     # 模型名称 / Model name"
     echo ""
     echo "💡 设置后重新运行此脚本即可进行完整测试 / After setting, rerun this script for complete testing"
@@ -41,7 +41,6 @@ else
     
     # 设置默认值 / Set default values
     export LANGUAGE="${LANGUAGE:-Chinese}"
-    export CATEGORIES="${CATEGORIES:-cs.CV, cs.CL}"
     export MODEL_NAME="${MODEL_NAME:-gpt-4o-mini}"
     export OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://api.openai.com/v1}"
     
@@ -72,16 +71,21 @@ else
     echo "📝 今日文件不存在，准备新建... / Today's file doesn't exist, ready to create new one..."
 fi
 
-cd daily_arxiv
-scrapy crawl arxiv -o ../data/${today}.jsonl
+python fetch_daily.py \
+    --run-date "$today" \
+    --lookback-days "${LOOKBACK_DAYS:-7}" \
+    --limit "${DAILY_PAPER_LIMIT:-500}" \
+    --categories "${CATEGORIES:-}" \
+    --output "data/${today}.jsonl"
 
-if [ ! -f "../data/${today}.jsonl" ]; then
+if [ ! -f "data/${today}.jsonl" ]; then
     echo "爬取失败，未生成数据文件 / Crawling failed, no data file generated"
     exit 1
 fi
 
-# 第二步：检查去重 / Step 2: Check duplicates  
+# 第二步：检查去重 / Step 2: Check duplicates
 echo "步骤2：执行去重检查... / Step 2: Performing intelligent deduplication check..."
+cd daily_arxiv
 python daily_arxiv/check_stats.py
 dedup_exit_code=$?
 
@@ -147,8 +151,12 @@ fi
 
 cd ..
 
-# 第五步：更新文件列表 / Step 5: Update file list
-echo "步骤5：更新文件列表... / Step 5: Updating file list..."
+# 为新论文打标签，并按版本迁移历史标签。只读取现有 JSONL，不读取 PDF。
+echo "步骤5：更新主题标签... / Step 5: Updating versioned topic tags..."
+python tag_papers.py --data-dir data
+
+# 第六步：更新文件列表 / Step 6: Update file list
+echo "步骤6：更新文件列表... / Step 6: Updating file list..."
 ls data/*.jsonl | sed 's|data/||' > assets/file-list.txt
 echo "✅ 文件列表更新完成 / File list updated"
 
@@ -161,12 +169,14 @@ if [ "$PARTIAL_MODE" = "false" ]; then
     echo "   ✅ 去重检查 / Smart duplicate check"
     echo "   ✅ AI增强处理 / AI enhancement"
     echo "   ✅ Markdown转换 / Markdown conversion"
+    echo "   ✅ 版本化主题标签 / Versioned topic tags"
     echo "   ✅ 文件列表更新 / File list update"
 else
     echo "🔄 部分流程已完成 / Partial workflow finished:"
     echo "   ✅ 数据爬取 / Data crawling"
     echo "   ✅ 去重检查 / Smart duplicate check"
     echo "   ⏭️  跳过AI增强和Markdown转换 / Skipped AI enhancement and Markdown conversion"
+    echo "   ✅ 元数据主题标签 / Metadata topic tags"
     echo "   ✅ 文件列表更新 / File list update"
     echo ""
     echo "💡 提示：设置OPENAI_API_KEY可启用完整功能 / Tip: Set OPENAI_API_KEY to enable full functionality"

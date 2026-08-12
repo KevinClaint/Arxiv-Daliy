@@ -377,6 +377,47 @@ header {
   overflow-y: hidden;
 }
 
+.topic-label-container {
+  display: flex;
+  align-items: center;
+  max-width: 1440px;
+  width: 100%;
+  padding: 5px 24px;
+  margin: 0 auto;
+}
+
+.topic-scroll {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.topic-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.system-tag-button {
+  border: 1px solid rgba(16, 120, 92, 0.2);
+  background: rgba(16, 120, 92, 0.07);
+  color: #0b6b52;
+  cursor: pointer;
+}
+
+.system-tag-button.active {
+  background: #10785c;
+  border-color: #10785c;
+  color: #fff;
+}
+
+.system-tag-button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
 /* Text search UI */
 .text-search {
   display: inline-flex;
@@ -671,6 +712,29 @@ main {
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
+}
+
+.paper-card-topics,
+.modal-topic-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.paper-topic-tag {
+  border: 1px solid rgba(16, 120, 92, 0.25);
+  background: rgba(16, 120, 92, 0.08);
+  color: #0b6b52;
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-size: 12px;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.modal-topic-tags .paper-topic-tag {
+  cursor: default;
 }
 
 .category-tag {
@@ -1255,6 +1319,10 @@ input:checked + .toggle-slider:before {
     max-width: 100%; /* 在移动端占满宽度 */
     justify-content: flex-start; /* 在移动端左对齐 */
     flex-wrap: nowrap; /* 确保不换行 */
+  }
+
+  .topic-label-container {
+    padding: 4px 16px;
   }
   
   .category-button, .keyword-tag {

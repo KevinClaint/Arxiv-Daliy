@@ -5,21 +5,32 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import re
 import sys
 from contextlib import nullcontext
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Iterable, TextIO
+from typing import Any, Callable, Iterable, TextIO
+
+from tqdm import tqdm
+
+
+def load_keywords(path: Path) -> list[str]:
+    """Load non-empty, non-comment keyword lines from a text file."""
+    return [
+        line
+        for raw_line in path.read_text(encoding="utf-8").splitlines()
+        if (line := raw_line.strip()) and not line.startswith("#")
+    ]
 
 
 # ======================== 用户配置区 ========================
+# 每日抓取与历史检索共用 keywords.txt；每行填写一个关键词或短语。
+KEYWORDS_FILE = Path(__file__).with_name("keywords.txt")
+SEARCH_KEYWORDS = load_keywords(KEYWORDS_FILE)
 # 日期格式为 "YYYY-MM-DD"；设为 None 表示不限制该方向的日期。
-SEARCH_KEYWORDS = [
-    "large language model",
-    "vision language model",
-]
 # 多个关键词之间的关系："OR"（匹配任意一个）或 "AND"（必须全部匹配）。
 KEYWORD_OPERATOR = "OR"
 START_DATE: str | None = None
@@ -40,16 +51,17 @@ SEARCH_FIELD = "all"
 MATCH_MODE = "phrase"
 
 # 最多导出的论文篇数；设为 None 表示导出全部匹配结果。
-MAX_RESULTS: int | None = 100
+MAX_RESULTS: int | None = 10000
 OUTPUT_FILE = "arxiv_results.ris"
 # "ris" 可导入 EndNote；也可设为 "csv"、"jsonl" 或 None（根据扩展名推断）。
 OUTPUT_FORMAT: str | None = "ris"
 
 # arXiv 请求设置。
-PAGE_SIZE = 100
-REQUEST_DELAY_SECONDS = 3.0
-REQUEST_RETRIES = 3
-PROGRESS_EVERY = 100  # 每处理多少篇显示一次进度；0 表示关闭。
+PAGE_SIZE = 200
+REQUEST_DELAY_SECONDS = 5.0
+REQUEST_RETRIES = 2
+PROGRESS_EVERY = 1  # 每处理多少篇更新一次当前论文日期；0 表示关闭进度显示。
+RESUME_DOWNLOAD = True  # 中断后从输出文件和检查点继续，不清空已有结果。
 # ============================================================
 
 
@@ -60,6 +72,9 @@ FIELD_PREFIXES = {
     "author": "au",
 }
 
+# arXiv 计算机科学领域的全部 cs.* 子分类。
+# 当 SEARCH_CATEGORIES 或 --categories 中包含 "cs" 时，程序会将其展开为
+# 下列具体分类以构造查询；普通使用者通常不需要修改这个内部列表。
 CS_CATEGORIES = (
     "cs.AI",
     "cs.AR",
@@ -119,6 +134,8 @@ CSV_FIELDS = [
     "doi",
     "links",
 ]
+
+CHECKPOINT_VERSION = 1
 
 
 def parse_date(value: str) -> date:
@@ -287,38 +304,172 @@ def _write_ris_record(record: dict[str, Any], output: TextIO) -> None:
         ]
     )
 
-    for tag, value in fields:
-        if value:
-            output.write(f"{tag}  - {value}\r\n")
-    output.write("ER  - \r\n\r\n")
+    lines = [f"{tag}  - {value}\r\n" for tag, value in fields if value]
+    output.write("".join(lines) + "ER  - \r\n\r\n")
+
+
+def _canonical_arxiv_id(arxiv_id: str) -> str:
+    return re.sub(r"v\d+$", "", arxiv_id.strip())
+
+
+def read_exported_ids(output_path: Path, output_format: str) -> list[str]:
+    """Read complete records from an existing export for safe resumption."""
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        return []
+
+    if output_format == "ris":
+        text = output_path.read_text(encoding="utf-8")
+        record_pattern = re.compile(r"(?ms)^TY  - .*?^ER  -[ \t]*\n")
+        records = list(record_pattern.finditer(text))
+        remainder_start = records[-1].end() if records else 0
+        if text[remainder_start:].strip():
+            raise ValueError("RIS 输出末尾存在不完整记录，无法安全续传")
+
+        ids = []
+        for record in records:
+            id_match = re.search(
+                r"(?m)^AN  - arXiv:(.+?)[ \t]*$", record.group(0)
+            )
+            if not id_match:
+                raise ValueError("RIS 输出中存在缺少 arXiv ID 的记录")
+            ids.append(id_match.group(1).strip())
+        return ids
+
+    if output_format == "jsonl":
+        ids = []
+        with output_path.open("r", encoding="utf-8") as output:
+            for line_number, line in enumerate(output, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                    ids.append(str(record["id"]))
+                except (json.JSONDecodeError, KeyError) as exc:
+                    raise ValueError(
+                        f"JSONL 第 {line_number} 行不完整，无法安全续传"
+                    ) from exc
+        return ids
+
+    if output_format == "csv":
+        with output_path.open("r", encoding="utf-8", newline="") as output:
+            reader = csv.DictReader(output)
+            if reader.fieldnames and "id" not in reader.fieldnames:
+                raise ValueError("CSV 输出缺少 id 列，无法安全续传")
+            return [row["id"] for row in reader if row.get("id")]
+
+    raise ValueError(f"不支持从 {output_format!r} 格式续传")
+
+
+def _checkpoint_path(output_path: Path) -> Path:
+    return Path(f"{output_path}.checkpoint.json")
+
+
+def _query_signature(query: str, output_format: str) -> str:
+    value = json.dumps(
+        {"query": query, "format": output_format},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def load_checkpoint(checkpoint_path: Path) -> dict[str, Any] | None:
+    if not checkpoint_path.exists():
+        return None
+    try:
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"检查点文件损坏：{checkpoint_path}") from exc
+    if checkpoint.get("version") != CHECKPOINT_VERSION:
+        raise ValueError("检查点版本不受支持")
+    return checkpoint
+
+
+def resume_offset_from_checkpoint(
+    checkpoint: dict[str, Any], signature: str, exported_count: int
+) -> int:
+    """Validate a checkpoint and reconcile a record written before a crash."""
+    if checkpoint.get("signature") != signature:
+        raise ValueError(
+            "查询条件与已有检查点不一致。请换一个输出文件，或确认后使用 "
+            "--no-resume 覆盖旧结果"
+        )
+    checkpoint_written = int(checkpoint.get("written_count", 0))
+    if checkpoint_written > exported_count:
+        raise ValueError("输出文件少于检查点记录，无法确定安全恢复位置")
+    return int(checkpoint.get("next_offset", 0)) + exported_count - checkpoint_written
+
+
+def save_checkpoint(checkpoint_path: Path, checkpoint: dict[str, Any]) -> None:
+    temporary_path = Path(f"{checkpoint_path}.tmp")
+    temporary_path.write_text(
+        json.dumps(checkpoint, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(checkpoint_path)
 
 
 def write_results(
     papers: Iterable[Any],
     output: TextIO,
     output_format: str,
-    progress_every: int = 100,
+    progress_every: int = 1,
+    *,
+    initial_count: int = 0,
+    initial_offset: int = 0,
+    existing_ids: set[str] | None = None,
+    checkpoint_callback: Callable[[int, int, str | None], None] | None = None,
 ) -> int:
-    """Stream results to output and return the number of written papers."""
+    """Stream results and return the number of newly written papers."""
     csv_writer = None
     if output_format == "csv":
         csv_writer = csv.DictWriter(output, fieldnames=CSV_FIELDS)
-        csv_writer.writeheader()
+        if initial_count == 0:
+            csv_writer.writeheader()
 
-    count = 0
-    for paper in papers:
-        record = paper_to_record(paper)
-        if output_format == "ris":
-            _write_ris_record(record, output)
-        elif csv_writer:
-            csv_writer.writerow(_csv_record(record))
-        else:
-            output.write(json.dumps(record, ensure_ascii=False) + "\n")
-        output.flush()
-        count += 1
-        if progress_every and count % progress_every == 0:
-            print(f"已写入 {count} 篇论文...", file=sys.stderr)
-    return count
+    new_count = 0
+    processed_offset = initial_offset
+    seen_ids = existing_ids if existing_ids is not None else set()
+    # arXiv 客户端不公开查询总数。这里不设置虚假的 total，而是展示真实的
+    # 已写入篇数、耗时、速度和当前论文日期。
+    with tqdm(
+        desc="检索并写入",
+        unit="篇",
+        dynamic_ncols=True,
+        mininterval=0.2,
+        smoothing=0.1,
+        disable=progress_every == 0,
+        file=sys.stderr,
+        initial=initial_count,
+    ) as progress:
+        for paper in papers:
+            record = paper_to_record(paper)
+            processed_offset += 1
+            canonical_id = _canonical_arxiv_id(record["id"])
+            if canonical_id in seen_ids:
+                if checkpoint_callback:
+                    checkpoint_callback(
+                        processed_offset, initial_count + new_count, None
+                    )
+                continue
+
+            if output_format == "ris":
+                _write_ris_record(record, output)
+            elif csv_writer:
+                csv_writer.writerow(_csv_record(record))
+            else:
+                output.write(json.dumps(record, ensure_ascii=False) + "\n")
+            output.flush()
+            seen_ids.add(canonical_id)
+            new_count += 1
+            progress.update(1)
+            total_count = initial_count + new_count
+            if checkpoint_callback:
+                checkpoint_callback(processed_offset, total_count, record["id"])
+            if progress_every and total_count % progress_every == 0:
+                paper_date = (record["published"] or "未知日期")[:10]
+                progress.set_postfix_str(f"当前论文 {paper_date}", refresh=False)
+    return new_count
 
 
 def infer_format(output_path: str, explicit_format: str | None) -> str:
@@ -420,7 +571,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--progress-every",
         type=int,
         default=PROGRESS_EVERY,
-        help=f"每写入多少篇报告一次进度（文件顶部配置：{PROGRESS_EVERY}；0 表示关闭）",
+        help=(
+            "每写入多少篇更新一次当前论文日期；篇数和耗时会实时显示"
+            f"（文件顶部配置：{PROGRESS_EVERY}；0 表示关闭）"
+        ),
+    )
+    parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=RESUME_DOWNLOAD,
+        help=(
+            "从已有输出和检查点续传（默认开启）；--no-resume 会覆盖已有输出"
+        ),
     )
     return parser
 
@@ -487,27 +649,141 @@ def main(argv: list[str] | None = None) -> int:
     )
     output_format = infer_format(args.output, args.format)
     output_context = nullcontext(sys.stdout)
+    output_path: Path | None = None
+    checkpoint_path: Path | None = None
+    checkpoint: dict[str, Any] | None = None
+    existing_ids: list[str] = []
+    resume_offset = 0
+    resume_enabled = args.resume and args.output != "-"
+    signature = _query_signature(query, output_format)
+
+    if args.output == "-" and args.resume:
+        print("标准输出不支持断点续传，本次将从头检索。", file=sys.stderr)
+
     try:
         if args.output != "-":
             output_path = Path(args.output)
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_context = output_path.open("w", encoding="utf-8", newline="")
-    except OSError as exc:
-        print(f"无法创建输出文件：{exc}", file=sys.stderr)
+            checkpoint_path = _checkpoint_path(output_path)
+
+            if resume_enabled:
+                existing_ids = read_exported_ids(output_path, output_format)
+                saved_checkpoint = load_checkpoint(checkpoint_path)
+                if saved_checkpoint:
+                    resume_offset = resume_offset_from_checkpoint(
+                        saved_checkpoint, signature, len(existing_ids)
+                    )
+                    if saved_checkpoint.get("completed"):
+                        print(
+                            f"已有输出已完成：{len(existing_ids)} 篇，文件为 {args.output}",
+                            file=sys.stderr,
+                        )
+                        return 0
+                else:
+                    resume_offset = len(existing_ids)
+
+                output_mode = "a"
+            else:
+                output_mode = "w"
+
+            checkpoint = {
+                "version": CHECKPOINT_VERSION,
+                "signature": signature,
+                "query": query,
+                "output_format": output_format,
+                "next_offset": resume_offset,
+                "written_count": len(existing_ids),
+                "last_id": existing_ids[-1] if existing_ids else None,
+                "completed": False,
+            }
+            save_checkpoint(checkpoint_path, checkpoint)
+            if (
+                resume_enabled
+                and args.limit is not None
+                and resume_offset >= args.limit
+            ):
+                print(
+                    f"已有 {len(existing_ids)} 篇，已达到 --limit={args.limit}；"
+                    "如需继续，请调大 MAX_RESULTS 或 --limit。",
+                    file=sys.stderr,
+                )
+                return 0
+            output_context = output_path.open(
+                output_mode, encoding="utf-8", newline=""
+            )
+    except (OSError, ValueError) as exc:
+        print(f"无法准备输出文件：{exc}", file=sys.stderr)
         return 1
 
     print(f"arXiv 查询：{query}", file=sys.stderr)
+    if resume_enabled and resume_offset:
+        print(
+            f"检测到 {len(existing_ids)} 篇已有论文，将从偏移 {resume_offset} 继续。",
+            file=sys.stderr,
+        )
+    print(
+        "正在连接 arXiv；首次请求和后续翻页期间可能需要等待，请观察进度耗时。",
+        file=sys.stderr,
+    )
+
+    latest_offset = resume_offset
+
+    def update_checkpoint(
+        next_offset: int, written_count: int, last_id: str | None
+    ) -> None:
+        nonlocal latest_offset
+        latest_offset = next_offset
+        if checkpoint is None or checkpoint_path is None:
+            return
+        checkpoint["next_offset"] = next_offset
+        checkpoint["written_count"] = written_count
+        if last_id:
+            checkpoint["last_id"] = last_id
+        save_checkpoint(checkpoint_path, checkpoint)
+
     try:
         with output_context as output:
-            count = write_results(
-                client.results(search), output, output_format, args.progress_every
+            new_count = write_results(
+                client.results(search, offset=resume_offset),
+                output,
+                output_format,
+                args.progress_every,
+                initial_count=len(existing_ids),
+                initial_offset=resume_offset,
+                existing_ids={_canonical_arxiv_id(item) for item in existing_ids},
+                checkpoint_callback=update_checkpoint,
             )
+    except KeyboardInterrupt:
+        print(
+            f"\n已中断，检查点保存在 {checkpoint_path}；下次运行会自动继续。",
+            file=sys.stderr,
+        )
+        return 130
     except (OSError, arxiv.ArxivError) as exc:
-        print(f"检索失败：{exc}", file=sys.stderr)
+        print(
+            f"检索暂停：{exc}\n已保留现有结果和检查点，下次运行会自动继续。",
+            file=sys.stderr,
+        )
         return 1
 
+    count = len(existing_ids) + new_count
+    limit_reached = args.limit is not None and latest_offset >= args.limit
+    if checkpoint is not None and checkpoint_path is not None:
+        checkpoint["completed"] = not limit_reached
+        checkpoint["completion_reason"] = (
+            "limit_reached" if limit_reached else "query_exhausted"
+        )
+        save_checkpoint(checkpoint_path, checkpoint)
+
     destination = "标准输出" if args.output == "-" else args.output
-    print(f"完成：共 {count} 篇，已写入 {destination}", file=sys.stderr)
+    if limit_reached:
+        print(
+            f"已达到结果上限：共 {count} 篇，已写入 {destination}；"
+            "调大 --limit 后可继续。",
+            file=sys.stderr,
+        )
+    else:
+        print(f"完成：共 {count} 篇，已写入 {destination}", file=sys.stderr)
     return 0
 
 

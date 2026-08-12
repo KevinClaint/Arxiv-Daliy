@@ -17,3 +17,6 @@ package-lock.json
 yarn.lock
 .DS_Store
 package.json
+
+# Local historical arXiv search output and resume state
+arxiv_results.*

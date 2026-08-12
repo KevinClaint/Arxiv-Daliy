@@ -1,9 +1,12 @@
 import csv
 import io
 import json
+import tempfile
 import unittest
 from datetime import date, datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from search_arxiv import (
     END_DATE,
@@ -15,6 +18,7 @@ from search_arxiv import (
     PROGRESS_EVERY,
     REQUEST_DELAY_SECONDS,
     REQUEST_RETRIES,
+    RESUME_DOWNLOAD,
     KEYWORD_OPERATOR,
     SEARCH_KEYWORDS,
     SEARCH_CATEGORIES,
@@ -23,12 +27,30 @@ from search_arxiv import (
     build_parser,
     build_query,
     infer_format,
+    load_keywords,
+    load_checkpoint,
     paper_to_record,
+    read_exported_ids,
+    resume_offset_from_checkpoint,
+    save_checkpoint,
     write_results,
+    _canonical_arxiv_id,
 )
 
 
 class SearchArxivTests(unittest.TestCase):
+    def test_loads_keywords_while_ignoring_comments_and_blank_lines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keywords.txt"
+            path.write_text(
+                "# Topics\n\n video world model \nspatial reasoning\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                load_keywords(path), ["video world model", "spatial reasoning"]
+            )
+
     def test_uses_file_configuration_when_arguments_are_omitted(self):
         parser = build_parser()
         args = parser.parse_args([])
@@ -47,6 +69,7 @@ class SearchArxivTests(unittest.TestCase):
         self.assertEqual(args.delay, REQUEST_DELAY_SECONDS)
         self.assertEqual(args.retries, REQUEST_RETRIES)
         self.assertEqual(args.progress_every, PROGRESS_EVERY)
+        self.assertEqual(args.resume, RESUME_DOWNLOAD)
 
     def test_command_line_arguments_override_file_configuration(self):
         parser = build_parser()
@@ -135,6 +158,19 @@ class SearchArxivTests(unittest.TestCase):
         csv_row = next(csv.DictReader(io.StringIO(csv_output.getvalue())))
         self.assertEqual(csv_row["authors"], "Alice Zhang; Bob Li")
 
+    @patch("search_arxiv.tqdm")
+    def test_progress_tracks_real_count_without_a_fake_total(self, mock_tqdm):
+        progress = mock_tqdm.return_value.__enter__.return_value
+
+        count = write_results([self._paper()], io.StringIO(), "jsonl", 1)
+
+        self.assertEqual(count, 1)
+        self.assertNotIn("total", mock_tqdm.call_args.kwargs)
+        progress.update.assert_called_once_with(1)
+        progress.set_postfix_str.assert_called_once_with(
+            "当前论文 2024-01-01", refresh=False
+        )
+
     def test_writes_endnote_compatible_ris(self):
         output = io.StringIO(newline="")
 
@@ -150,6 +186,74 @@ class SearchArxivTests(unittest.TestCase):
         self.assertIn("UR  - https://arxiv.org/abs/2401.00001v1\r\n", ris)
         self.assertIn("L1  - https://arxiv.org/pdf/2401.00001v1\r\n", ris)
         self.assertTrue(ris.endswith("ER  - \r\n\r\n"))
+
+    def test_reads_existing_ris_for_legacy_resume(self):
+        output = io.StringIO(newline="")
+        write_results([self._paper()], output, "ris", 0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "papers.ris"
+            output_path.write_text(output.getvalue(), encoding="utf-8", newline="")
+
+            self.assertEqual(read_exported_ids(output_path, "ris"), ["2401.00001v1"])
+
+    def test_rejects_incomplete_ris_resume_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "papers.ris"
+            output_path.write_text("TY  - JOUR\nAN  - arXiv:2401.00001v1\n")
+
+            with self.assertRaisesRegex(ValueError, "不完整记录"):
+                read_exported_ids(output_path, "ris")
+
+    def test_resume_skips_an_existing_paper_version(self):
+        output = io.StringIO()
+        checkpoints = []
+
+        new_count = write_results(
+            [self._paper()],
+            output,
+            "jsonl",
+            0,
+            initial_count=1,
+            initial_offset=1,
+            existing_ids={_canonical_arxiv_id("2401.00001v2")},
+            checkpoint_callback=lambda *values: checkpoints.append(values),
+        )
+
+        self.assertEqual(new_count, 0)
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual(checkpoints, [(2, 1, None)])
+
+    def test_saves_checkpoint_atomically(self):
+        checkpoint = {"version": 1, "next_offset": 400}
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint_path = Path(directory) / "papers.checkpoint.json"
+
+            save_checkpoint(checkpoint_path, checkpoint)
+
+            self.assertEqual(load_checkpoint(checkpoint_path), checkpoint)
+            self.assertFalse(Path(f"{checkpoint_path}.tmp").exists())
+
+    def test_rejects_checkpoint_from_a_different_query(self):
+        checkpoint = {
+            "signature": "old-query",
+            "next_offset": 400,
+            "written_count": 400,
+        }
+
+        with self.assertRaisesRegex(ValueError, "查询条件"):
+            resume_offset_from_checkpoint(checkpoint, "new-query", 400)
+
+    def test_reconciles_record_written_just_before_a_crash(self):
+        checkpoint = {
+            "signature": "same-query",
+            "next_offset": 399,
+            "written_count": 399,
+        }
+
+        self.assertEqual(
+            resume_offset_from_checkpoint(checkpoint, "same-query", 400), 400
+        )
 
     def test_infers_output_format(self):
         self.assertEqual(infer_format("papers.ris", None), "ris")
