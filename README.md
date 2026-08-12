@@ -2,6 +2,117 @@
 
 这是一个可以部署在 GitHub 上的自动化论文网站。它每天根据你维护的关键词查询 arXiv，使用 DeepSeek 等兼容 OpenAI API 的模型生成中文总结，为论文添加规范主题标签，并通过 GitHub Pages 展示结果。
 
+## 先看这里：怎样安全地把 GitHub 更新同步到本地
+
+这个项目使用两个分支：
+
+- `main`：保存程序代码和网页，这是平时应该停留的分支。
+- `data`：保存 GitHub Actions 每天生成的论文数据，不要把它合并到 `main`。
+
+### 更新本地代码：日常只需要这几步
+
+先在终端进入项目目录：
+
+```bash
+cd /Users/kevin/Desktop/code/research/tools/arxiv/daily-arXiv-ai-enhanced
+```
+
+确认自己位于 `main` 分支，并检查本地是否改过文件：
+
+```bash
+git switch main
+git status
+```
+
+只有看到下面这句话时，才继续拉取：
+
+```text
+nothing to commit, working tree clean
+```
+
+安全地同步 GitHub 上的最新代码：
+
+```bash
+git pull --ff-only origin main
+```
+
+这里的 `--ff-only` 是保护措施：如果本地提交和 GitHub 提交发生分叉，Git 会停止并提示错误，不会擅自生成合并提交或改乱提交历史。
+
+以后日常更新代码，重复执行下面四条命令即可：
+
+```bash
+cd /Users/kevin/Desktop/code/research/tools/arxiv/daily-arXiv-ai-enhanced
+git switch main
+git status
+git pull --ff-only origin main
+```
+
+> [!IMPORTANT]
+> 如果 `git status` 显示 `modified`、`deleted` 或代码目录中存在 `untracked files`，先不要执行 `pull`。这些是尚未保存的本地修改，需要先确认、提交或备份。不要为了继续拉取而执行 `git reset --hard`。
+
+### 把自己的修改推送到 GitHub
+
+推送前先同步一次，确认 GitHub 没有新的代码：
+
+```bash
+git switch main
+git status
+git pull --ff-only origin main
+```
+
+然后只添加自己明确修改过的文件。例如只修改了关键词：
+
+```bash
+git add keywords.txt
+git commit -m "chore: update arxiv keywords"
+git push origin main
+```
+
+如果同时修改了 README：
+
+```bash
+git add keywords.txt README.md
+git commit -m "docs: update keywords and instructions"
+git push origin main
+```
+
+推荐明确写出文件名，避免使用 `git add .` 时把测试文件、下载文件或其他不需要的内容一起提交。
+
+如果 `pull` 或 `push` 报错，先执行 `git status` 查看状态。此时不要使用 `git push --force`；保留终端中的错误信息再处理。
+
+### 可选：把论文数据同步到本地
+
+同步代码和同步论文数据是两件不同的事情。需要本地查看 GitHub Actions 生成的论文 JSONL 时，在 `main` 分支执行：
+
+```bash
+git fetch origin data
+mkdir -p data
+git archive origin/data data | tar -x
+```
+
+数据会被复制到本地的 `data/` 目录，但当前分支仍然是 `main`。这个方法不会把 `data` 分支合并进代码分支；同名的本地数据文件会被远程版本覆盖。
+
+可以这样确认自己仍在 `main`：
+
+```bash
+git branch --show-current
+```
+
+正常输出应为：
+
+```text
+main
+```
+
+为了避免混乱，不要执行下面这些命令：
+
+```bash
+git checkout data
+git merge data
+git push --force
+git reset --hard
+```
+
 整个系统不需要购买服务器，主要使用：
 
 - GitHub Actions：每天自动抓取、总结和更新论文。
