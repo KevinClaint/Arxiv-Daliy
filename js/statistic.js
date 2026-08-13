@@ -737,6 +737,11 @@ function parseJsonlData(jsonlText, date) {
       }
       
       let allCategories = Array.isArray(paper.categories) ? paper.categories : [paper.categories];
+      allCategories = allCategories.filter(category => String(category).startsWith('cs.'));
+
+      if (allCategories.length === 0) {
+        return;
+      }
       
       const primaryCategory = allCategories[0];
       

@@ -23,7 +23,7 @@ if [ -z "$OPENAI_API_KEY" ]; then
     echo "🔧 可选变量 / Optional variables:"
     echo "   export OPENAI_BASE_URL=\"https://api.openai.com/v1\"  # API基础URL / API base URL"
     echo "   export LANGUAGE=\"Chinese\"                           # 语言设置 / Language setting"
-    echo "   export CATEGORIES=\"\"                               # 留空查询全部arXiv / Empty means all arXiv"
+    echo "   export CATEGORIES=\"cs\"                             # 全部计算机科学分类 / All computer science categories"
     echo "   export MODEL_NAME=\"gpt-4o-mini\"                     # 模型名称 / Model name"
     echo ""
     echo "💡 设置后重新运行此脚本即可进行完整测试 / After setting, rerun this script for complete testing"
@@ -42,6 +42,7 @@ else
     # 设置默认值 / Set default values
     export LANGUAGE="${LANGUAGE:-Chinese}"
     export MODEL_NAME="${MODEL_NAME:-gpt-4o-mini}"
+    export CATEGORIES="${CATEGORIES:-cs}"
     export OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://api.openai.com/v1}"
     
     echo "🔧 当前配置 / Current configuration:"
@@ -75,7 +76,7 @@ python fetch_daily.py \
     --run-date "$today" \
     --lookback-days "${LOOKBACK_DAYS:-7}" \
     --limit "${DAILY_PAPER_LIMIT:-500}" \
-    --categories "${CATEGORIES:-}" \
+    --categories "${CATEGORIES:-cs}" \
     --output "data/${today}.jsonl"
 
 if [ ! -f "data/${today}.jsonl" ]; then

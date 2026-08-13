@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch recent arXiv papers across all fields using the shared keyword list."""
+"""Fetch recent arXiv computer science papers using the shared keyword list."""
 
 from __future__ import annotations
 
@@ -111,7 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-date", type=date.fromisoformat)
     parser.add_argument("--lookback-days", type=int, default=7)
     parser.add_argument("--limit", type=int, default=500)
-    parser.add_argument("--categories", default=os.environ.get("CATEGORIES", ""))
+    parser.add_argument("--categories", default=os.environ.get("CATEGORIES") or "cs")
     parser.add_argument("--page-size", type=int, default=100)
     parser.add_argument("--delay", type=float, default=3.0)
     parser.add_argument("--retries", type=int, default=3)

@@ -126,7 +126,7 @@ git reset --hard
 ## 功能
 
 - 根据 [`keywords.txt`](./keywords.txt) 自动查询近期 arXiv 论文。
-- 默认查询全部 arXiv 学科，也可以限制为指定分类。
+- 默认只查询全部 arXiv `cs.*` 计算机科学分类，并继续使用关键词过滤。
 - 自动生成 TL;DR、研究动机、方法、结果和结论的中文总结。
 - 内置 30 个不重复的规范主题标签。
 - 支持按 arXiv 分类、主题标签、作者和文本检索论文。
@@ -256,10 +256,15 @@ LANGUAGE = Chinese
 
 ### 是否需要设置 CATEGORIES
 
-`CATEGORIES` 是可选变量。
+每日 GitHub Actions 已固定使用：
 
-- 不创建或留空：在全部 arXiv 学科中查询关键词，覆盖范围最大。
-- 设置分类：只查询指定学科，速度更快、无关结果更少。
+```text
+CATEGORIES = cs
+```
+
+`cs` 会自动展开为全部 arXiv 计算机科学子分类，例如 `cs.AI`、`cs.CV`、`cs.LG`、`cs.CL` 和 `cs.RO`。仓库中的 `CATEGORIES` Variable 不会覆盖这个每日任务设置。
+
+如需自行修改范围，请直接编辑 [`.github/workflows/run.yml`](./.github/workflows/run.yml) 中的 `--categories "cs"`。当前版本有意固定为全部 `cs.*`，避免 GitHub Variable 误配置后抓入其他学科。
 
 示例：
 
@@ -280,7 +285,7 @@ CATEGORIES = cs.AI, cs.CV, cs.LG, cs.RO
 | `stat.ML` | 统计机器学习 |
 | `eess.IV` | 图像与视频处理 |
 
-如果目标是“尽可能广地抓取关键词论文”，不要设置 `CATEGORIES`。
+当前目标是抓取全部计算机科学相关论文，因此保留 `--categories "cs"`，不要只列出少数几个子分类。
 
 ## 第四步：允许 GitHub Actions 自动提交
 

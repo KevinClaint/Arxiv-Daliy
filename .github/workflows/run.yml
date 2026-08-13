@@ -57,12 +57,12 @@ jobs:
             echo "📝 今日文件不存在，准备新建... / Today's file doesn't exist, ready to create new one..."
         fi
         
-        # CATEGORIES 留空时查询所有 arXiv 学科，这是默认的最大关键词范围。
+        # 默认将 cs 展开为全部 arXiv cs.* 子分类，只抓取计算机科学相关论文。
         python fetch_daily.py \
           --run-date "$today" \
           --lookback-days "${{ vars.LOOKBACK_DAYS || '7' }}" \
           --limit "${{ vars.DAILY_PAPER_LIMIT || '500' }}" \
-          --categories "${{ vars.CATEGORIES }}" \
+          --categories "cs" \
           --output "data/${today}.jsonl"
         
         # 检查爬取是否成功 / Check if crawling was successful

@@ -1,6 +1,8 @@
 import json
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +12,7 @@ from fetch_daily import (
     build_daily_queries,
     canonical_id,
     collect_new_papers,
+    build_parser,
     load_existing_ids,
     parse_categories,
 )
@@ -20,6 +23,10 @@ class FetchDailyTests(unittest.TestCase):
         self.assertEqual(canonical_id("2401.00001v3"), "2401.00001")
         self.assertEqual(parse_categories(""), [])
         self.assertEqual(parse_categories("cs.CV, stat.ML"), ["cs.CV", "stat.ML"])
+
+    def test_defaults_daily_fetch_to_all_computer_science_categories(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(build_parser().parse_args([]).categories, "cs")
 
     def test_batches_keywords_into_short_independent_queries(self):
         queries = build_daily_queries(
