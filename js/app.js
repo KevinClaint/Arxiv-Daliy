@@ -321,10 +321,12 @@ function outputJsonData(papers, category) {
     papers: papers.map(p => ({
       id: p.id,
       title: p.title,
+      title_zh: p.titleZh,
       authors: p.authors,
       categories: p.category,
       tags: p.tags,
-      summary: p.summary,
+      abstract_en: p.details,
+      abstract_zh: p.summary,
       date: p.date,
       url: p.url,
       reason: p.matchReason
@@ -523,23 +525,8 @@ function initEventListeners() {
   
   document.querySelector('.paper-modal').addEventListener('click', (event) => {
     const modal = document.querySelector('.paper-modal');
-    const pdfContainer = modal.querySelector('.pdf-container');
-    
-    // 如果点击的是模态框背景
     if (event.target === modal) {
-      // 检查PDF是否处于放大状态
-      if (pdfContainer && pdfContainer.classList.contains('expanded')) {
-        // 如果PDF是放大的，先将其恢复正常大小
-        const expandButton = modal.querySelector('.pdf-expand-btn');
-        if (expandButton) {
-          togglePdfSize(expandButton);
-        }
-        // 阻止事件继续传播，防止关闭整个模态框
-        event.stopPropagation();
-      } else {
-        // 如果PDF不是放大状态，则关闭整个模态框
-        closeModal();
-      }
+      closeModal();
     }
   });
   
@@ -1010,21 +997,22 @@ function parseJsonlData(jsonlText, date) {
         result[primaryCategory] = [];
       }
       
-      const summary = paper.AI && paper.AI.tldr ? paper.AI.tldr : paper.summary;
+      const translatedTitle = paper.AI && paper.AI.title_zh ? paper.AI.title_zh : '';
+      const translatedAbstract = paper.AI && paper.AI.abstract_zh
+        ? paper.AI.abstract_zh
+        : (paper.AI && paper.AI.tldr ? paper.AI.tldr : paper.summary);
       
       result[primaryCategory].push({
         title: paper.title,
+        titleZh: translatedTitle,
         url: paper.abs || paper.pdf || `https://arxiv.org/abs/${paper.id}`,
         authors: Array.isArray(paper.authors) ? paper.authors.join(', ') : paper.authors,
         category: allCategories,
-        summary: summary,
+        summary: translatedAbstract,
         details: paper.summary || '',
         date: date,
         id: paper.id,
-        motivation: paper.AI && paper.AI.motivation ? paper.AI.motivation : '',
-        method: paper.AI && paper.AI.method ? paper.AI.method : '',
-        result: paper.AI && paper.AI.result ? paper.AI.result : '',
-        conclusion: paper.AI && paper.AI.conclusion ? paper.AI.conclusion : '',
+        matchedKeywords: Array.isArray(paper.matched_keywords) ? paper.matched_keywords : [],
         tags: Array.isArray(paper.tags) ? paper.tags : [],
         tagSchemaVersion: paper.tag_schema_version || null,
         code_url: paper.code_url || '',
@@ -1231,26 +1219,20 @@ function renderPapers() {
     filteredPapers.sort((a, b) => {
       const hayA = [
         a.title,
+        a.titleZh || '',
         a.authors,
         Array.isArray(a.category) ? a.category.join(', ') : a.category,
         a.summary,
         a.details || '',
-        a.motivation || '',
-        a.method || '',
-        a.result || '',
-        a.conclusion || '',
         (a.tags || []).map(getSystemTagLabel).join(' ')
       ].join(' ').toLowerCase();
       const hayB = [
         b.title,
+        b.titleZh || '',
         b.authors,
         Array.isArray(b.category) ? b.category.join(', ') : b.category,
         b.summary,
         b.details || '',
-        b.motivation || '',
-        b.method || '',
-        b.result || '',
-        b.conclusion || '',
         (b.tags || []).map(getSystemTagLabel).join(' ')
       ].join(' ').toLowerCase();
       const am = hayA.includes(q);
@@ -1264,14 +1246,11 @@ function renderPapers() {
     filteredPapers.forEach(p => {
       const hay = [
         p.title,
+        p.titleZh || '',
         p.authors,
         Array.isArray(p.category) ? p.category.join(', ') : p.category,
         p.summary,
         p.details || '',
-        p.motivation || '',
-        p.method || '',
-        p.result || '',
-        p.conclusion || '',
         (p.tags || []).map(getSystemTagLabel).join(' ')
       ].join(' ').toLowerCase();
       const matched = hay.includes(q);
@@ -1479,6 +1458,9 @@ function renderPapers() {
     const highlightedTitle = titleSummaryTerms.length > 0 
       ? highlightMatches(paper.title, titleSummaryTerms, 'keyword-highlight') 
       : paper.title;
+    const highlightedTitleZh = paper.titleZh && titleSummaryTerms.length > 0
+      ? highlightMatches(paper.titleZh, titleSummaryTerms, 'keyword-highlight')
+      : paper.titleZh;
     const highlightedSummary = titleSummaryTerms.length > 0 
       ? highlightMatches(paper.summary, titleSummaryTerms, 'keyword-highlight') 
       : paper.summary;
@@ -1513,6 +1495,7 @@ function renderPapers() {
       ${paper.isMatched ? '<div class="match-badge" title="匹配您的搜索条件"></div>' : ''}
       <div class="paper-card-header">
         <h3 class="paper-card-title">${highlightedTitle}</h3>
+        ${highlightedTitleZh ? `<p class="paper-card-title-zh">${highlightedTitleZh}</p>` : ''}
         <p class="paper-card-authors">${formattedAuthors}</p>
         <div class="paper-card-categories">
           ${categoryTags}
@@ -1594,23 +1577,9 @@ function showPaperDetails(paper, paperIndex) {
   const highlightedAbstract = modalTitleTerms.length > 0 
     ? highlightMatches(abstractText, modalTitleTerms, 'keyword-highlight') 
     : abstractText;
-  
-  // 高亮其他部分（如果存在且是摘要的一部分）
-  const highlightedMotivation = paper.motivation && modalTitleTerms.length > 0 
-    ? highlightMatches(paper.motivation, modalTitleTerms, 'keyword-highlight') 
-    : paper.motivation;
-  
-  const highlightedMethod = paper.method && modalTitleTerms.length > 0 
-    ? highlightMatches(paper.method, modalTitleTerms, 'keyword-highlight') 
-    : paper.method;
-  
-  const highlightedResult = paper.result && modalTitleTerms.length > 0 
-    ? highlightMatches(paper.result, modalTitleTerms, 'keyword-highlight') 
-    : paper.result;
-  
-  const highlightedConclusion = paper.conclusion && modalTitleTerms.length > 0 
-    ? highlightMatches(paper.conclusion, modalTitleTerms, 'keyword-highlight') 
-    : paper.conclusion;
+  const highlightedTitleZh = paper.titleZh && modalTitleTerms.length > 0
+    ? highlightMatches(paper.titleZh, modalTitleTerms, 'keyword-highlight')
+    : paper.titleZh;
   
   // 判断是否需要显示高亮说明
   const showHighlightLegend = activeKeywords.length > 0 || activeAuthors.length > 0;
@@ -1624,36 +1593,16 @@ function showPaperDetails(paper, paperIndex) {
       <p><strong>Categories: </strong>${categoryDisplay}</p>
       ${(paper.tags || []).length ? `<div class="modal-topic-tags">${paper.tags.map(tagId => `<span class="paper-topic-tag">${getSystemTagLabel(tagId)}</span>`).join('')}</div>` : ''}
       <p><strong>Date: </strong>${formatDate(paper.date)}</p>
-      
-      
-      <h3>TL;DR</h3>
+
+      ${highlightedTitleZh ? `<h3>中文标题</h3><p class="translated-title">${highlightedTitleZh}</p>` : ''}
+
+      <h3>中文摘要</h3>
       <p>${highlightedSummary}</p>
-      
-      <div class="paper-sections">
-        ${paper.motivation ? `<div class="paper-section"><h4>Motivation</h4><p>${highlightedMotivation}</p></div>` : ''}
-        ${paper.method ? `<div class="paper-section"><h4>Method</h4><p>${highlightedMethod}</p></div>` : ''}
-        ${paper.result ? `<div class="paper-section"><h4>Result</h4><p>${highlightedResult}</p></div>` : ''}
-        ${paper.conclusion ? `<div class="paper-section"><h4>Conclusion</h4><p>${highlightedConclusion}</p></div>` : ''}
-      </div>
-      
-      ${highlightedAbstract ? `<h3>Abstract</h3><p class="original-abstract">${highlightedAbstract}</p>` : ''}
-      
-      <div class="pdf-preview-section">
-        <div class="pdf-header">
-          <h3>PDF Preview</h3>
-          <button class="pdf-expand-btn" onclick="togglePdfSize(this)">
-            <svg class="expand-icon" viewBox="0 0 24 24" width="24" height="24">
-              <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-            </svg>
-            <svg class="collapse-icon" viewBox="0 0 24 24" width="24" height="24" style="display: none;">
-              <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
-            </svg>
-          </button>
-        </div>
-        <div class="pdf-container">
-          <iframe src="${paper.url.replace('abs', 'pdf')}" width="100%" height="800px" frameborder="0"></iframe>
-        </div>
-      </div>
+
+      ${highlightedAbstract ? `<h3>English Abstract</h3><p class="original-abstract">${highlightedAbstract}</p>` : ''}
+
+      <h3>Original Link</h3>
+      <p><a class="original-paper-link" href="${paper.url}" target="_blank" rel="noopener">${paper.url}</a></p>
     </div>
   `;
   
@@ -1675,9 +1624,22 @@ function showPaperDetails(paper, paperIndex) {
   }
   // ---------------------------
 
-  // 提示词来自：https://papers.cool/
-  prompt = `请你阅读这篇文章${paper.url.replace('abs', 'pdf')},总结一下这篇文章解决的问题、相关工作、研究方法、做了什么实验及其结果、结论，最后整体总结一下这篇文章的内容`
-  document.getElementById('kimiChatLink').href = `https://www.kimi.com/_prefill_chat?prefill_prompt=${prompt}&system_prompt=你是一个学术助手，后面的对话将围绕着以下论文内容进行，已经通过链接给出了论文的PDF和论文已有的FAQ。用户将继续向你咨询论文的相关问题，请你作出专业的回答，不要出现第一人称，当涉及到分点回答时，鼓励你以markdown格式输出。&send_immediately=true&force_search=true`;
+  const translationPrompt = [
+    '请忠实、完整地翻译下面的英文论文标题和 arXiv 摘要，不要总结、扩写或推断。',
+    '',
+    `英文标题：${paper.title}`,
+    '',
+    `英文摘要：${paper.details || ''}`,
+    '',
+    `arXiv 原始链接：${paper.url}`
+  ].join('\n');
+  const kimiParams = new URLSearchParams({
+    prefill_prompt: translationPrompt,
+    system_prompt: '你是专业的学术翻译。只根据用户提供的英文标题和 arXiv 摘要完成中文翻译，不要声称阅读过 PDF，也不要补充原文没有的信息。',
+    send_immediately: 'true',
+    force_search: 'false'
+  });
+  document.getElementById('kimiChatLink').href = `https://www.kimi.com/_prefill_chat?${kimiParams.toString()}`;
   
   // 更新论文位置信息
   const paperPosition = document.getElementById('paperPosition');
@@ -1901,42 +1863,4 @@ function clearAllAuthors() {
   renderFilterTags();
   // 重新渲染论文列表，移除作者匹配的高亮和优先排序
   renderPapers();
-}
-
-// 切换PDF预览器大小
-function togglePdfSize(button) {
-  const pdfContainer = button.closest('.pdf-preview-section').querySelector('.pdf-container');
-  const iframe = pdfContainer.querySelector('iframe');
-  const expandIcon = button.querySelector('.expand-icon');
-  const collapseIcon = button.querySelector('.collapse-icon');
-  
-  if (pdfContainer.classList.contains('expanded')) {
-    // 恢复正常大小
-    pdfContainer.classList.remove('expanded');
-    iframe.style.height = '800px';
-    expandIcon.style.display = 'block';
-    collapseIcon.style.display = 'none';
-    
-    // 移除遮罩层
-    const overlay = document.querySelector('.pdf-overlay');
-    if (overlay) {
-      overlay.remove();
-    }
-  } else {
-    // 放大显示
-    pdfContainer.classList.add('expanded');
-    iframe.style.height = '90vh';
-    expandIcon.style.display = 'none';
-    collapseIcon.style.display = 'block';
-    
-    // 添加遮罩层
-    const overlay = document.createElement('div');
-    overlay.className = 'pdf-overlay';
-    document.body.appendChild(overlay);
-    
-    // 点击遮罩层时收起PDF
-    overlay.addEventListener('click', () => {
-      togglePdfSize(button);
-    });
-  }
 }

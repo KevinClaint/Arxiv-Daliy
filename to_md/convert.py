@@ -47,7 +47,7 @@ if __name__ == "__main__":
                     continue
                 
                 # Check if all required AI fields are present
-                required_fields = ['tldr', 'motivation', 'method', 'result', 'conclusion']
+                required_fields = ['title_zh', 'abstract_zh']
                 if not all(field in ai_data for field in required_fields):
                     print(f"Skipping item '{item.get('title', 'Unknown')}' due to incomplete AI fields")
                     continue
@@ -55,14 +55,11 @@ if __name__ == "__main__":
                 papers.append(
                     template.format(
                         title=item["title"],
+                        title_zh=ai_data.get('title_zh', ''),
                         authors=",".join(item["authors"]),
                         summary=item["summary"],
                         url=item['abs'],
-                        tldr=ai_data.get('tldr', ''),
-                        motivation=ai_data.get('motivation', ''),
-                        method=ai_data.get('method', ''),
-                        result=ai_data.get('result', ''),
-                        conclusion=ai_data.get('conclusion', ''),
+                        abstract_zh=ai_data.get('abstract_zh', ''),
                         cate=item['categories'][0],
                         idx=next(idx)
                     )

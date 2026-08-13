@@ -322,7 +322,7 @@ async function loadPapersByDateRange(startDate, endDate) {
       });
     });
 
-    // 提取关键词并进行总结
+    // 从论文标题中提取统计关键词
     const extractKeywords = (text) => {
       // 移除特殊字符和多余空格
       const cleanText = text.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -749,7 +749,9 @@ function parseJsonlData(jsonlText, date) {
         result[primaryCategory] = [];
       }
       
-      const summary = paper.AI && paper.AI.tldr ? paper.AI.tldr : paper.summary;
+      const summary = paper.AI && paper.AI.abstract_zh
+        ? paper.AI.abstract_zh
+        : (paper.AI && paper.AI.tldr ? paper.AI.tldr : paper.summary);
       
       result[primaryCategory].push({
         title: paper.title,
@@ -759,11 +761,7 @@ function parseJsonlData(jsonlText, date) {
         summary: summary,
         details: paper.summary || '',
         date: date,
-        id: paper.id,
-        motivation: paper.AI && paper.AI.motivation ? paper.AI.motivation : '',
-        method: paper.AI && paper.AI.method ? paper.AI.method : '',
-        result: paper.AI && paper.AI.result ? paper.AI.result : '',
-        conclusion: paper.AI && paper.AI.conclusion ? paper.AI.conclusion : ''
+        id: paper.id
       });
     } catch (error) {
       console.error('解析JSON行失败:', error, line);

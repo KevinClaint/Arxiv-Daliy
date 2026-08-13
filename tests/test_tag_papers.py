@@ -37,6 +37,23 @@ class TagPaperTests(unittest.TestCase):
         self.assertIn("spatial-reasoning", tags)
         self.assertIn("robotics", tags)
 
+    def test_assigns_tags_from_chinese_translation_fields(self):
+        catalog = load_catalog()
+        paper = {
+            "title": "Unrelated title",
+            "summary": "Unrelated abstract",
+            "AI": {
+                "title_zh": "世界模型",
+                "abstract_zh": "用于机器人的空间推理与具身智能研究",
+            },
+        }
+
+        tags = assign_tags(paper, catalog)
+
+        self.assertIn("world-models", tags)
+        self.assertIn("spatial-reasoning", tags)
+        self.assertIn("robotics", tags)
+
     def test_migrates_one_old_tag_to_two_new_tags(self):
         catalog = self._migration_catalog()
 

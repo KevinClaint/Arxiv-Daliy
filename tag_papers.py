@@ -13,7 +13,15 @@ from typing import Any, Iterable
 
 DEFAULT_CATALOG = Path(__file__).with_name("tag_catalog.json")
 TAG_TEXT_FIELDS = ("title", "summary", "comment")
-AI_TEXT_FIELDS = ("tldr", "motivation", "method", "result", "conclusion")
+AI_TEXT_FIELDS = (
+    "title_zh",
+    "abstract_zh",
+    "tldr",
+    "motivation",
+    "method",
+    "result",
+    "conclusion",
+)
 
 
 def load_catalog(path: Path = DEFAULT_CATALOG) -> dict[str, Any]:
@@ -100,7 +108,10 @@ def assign_tags(paper: dict[str, Any], catalog: dict[str, Any]) -> list[str]:
     return [
         tag["id"]
         for tag in catalog["tags"]
-        if any(" ".join(term.casefold().split()) in searchable for term in tag["terms"])
+        if any(
+            " ".join(term.casefold().split()) in searchable
+            for term in [tag["label"], *tag["terms"]]
+        )
     ]
 
 
@@ -139,7 +150,7 @@ def update_paper_tags(paper: dict[str, Any], catalog: dict[str, Any]) -> bool:
     if isinstance(old_tags, list) and isinstance(old_version, int):
         new_tags = migrate_tags(old_tags, old_version, catalog)
     else:
-        # Initial backfill uses metadata and saved summaries only. No PDF or LLM call.
+        # Initial backfill uses saved metadata and translations only. No PDF or LLM call.
         new_tags = assign_tags(paper, catalog)
 
     changed = (

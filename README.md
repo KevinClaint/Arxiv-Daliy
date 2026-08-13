@@ -1,6 +1,6 @@
-# 每日 arXiv 论文追踪与中文总结网站
+# 每日 arXiv 论文追踪与中文翻译网站
 
-这是一个可以部署在 GitHub 上的自动化论文网站。它每天根据你维护的关键词查询 arXiv，使用 DeepSeek 等兼容 OpenAI API 的模型生成中文总结，为论文添加规范主题标签，并通过 GitHub Pages 展示结果。
+这是一个可以部署在 GitHub 上的自动化论文网站。它每天根据你维护的关键词查询 arXiv，使用 DeepSeek 等兼容 OpenAI API 的模型完整翻译英文标题和 arXiv 摘要，为论文添加规范主题标签，并通过 GitHub Pages 展示结果。
 
 ## 先看这里：怎样安全地把 GitHub 更新同步到本地
 
@@ -115,19 +115,20 @@ git reset --hard
 
 整个系统不需要购买服务器，主要使用：
 
-- GitHub Actions：每天自动抓取、总结和更新论文。
+- GitHub Actions：每天自动抓取、翻译和更新论文。
 - GitHub Pages：托管论文浏览网站。
-- DeepSeek API：生成中文论文总结。
+- DeepSeek API：翻译英文论文标题和 arXiv 摘要。
 - `data` 分支：保存每天生成的论文数据。
 
 > [!CAUTION]
-> 论文内容和中文总结可能存在错误。AI 结果只能作为阅读辅助，重要结论请以原论文为准。部署者需要自行承担 API 费用，并负责公开页面的内容合规。
+> 中文翻译可能存在错误。AI 翻译只能作为阅读辅助，重要表述请以英文原标题、英文原摘要和原论文为准。部署者需要自行承担 API 费用，并负责公开页面的内容合规。
 
 ## 功能
 
 - 根据 [`keywords.txt`](./keywords.txt) 自动查询近期 arXiv 论文。
 - 默认只查询全部 arXiv `cs.*` 计算机科学分类，并继续使用关键词过滤。
-- 自动生成 TL;DR、研究动机、方法、结果和结论的中文总结。
+- 完整翻译英文标题和 arXiv 摘要，不读取或下载 PDF。
+- 网页保留英文原标题、英文原摘要和 arXiv 原始链接。
 - 内置 30 个不重复的规范主题标签。
 - 支持按 arXiv 分类、主题标签、作者和文本检索论文。
 - 支持单日和日期范围浏览。
@@ -224,7 +225,7 @@ Secret: https://api.deepseek.com
 - 不要在末尾添加多余空格。
 - `OPENAI_API_KEY` 只能放在 Secrets，不能放在 Variables。
 
-## 第三步：设置模型和总结语言
+## 第三步：设置模型和翻译语言
 
 仍然在：
 
@@ -240,8 +241,8 @@ Settings
 
 | Variable 名称 | 推荐值 | 说明 |
 | --- | --- | --- |
-| `MODEL_NAME` | `deepseek-chat` | 用于生成论文结构化总结的模型 |
-| `LANGUAGE` | `Chinese` | 让模型输出中文总结 |
+| `MODEL_NAME` | `deepseek-chat` | 用于翻译标题和摘要的模型 |
+| `LANGUAGE` | `Chinese` | 让模型输出中文翻译 |
 | `LOOKBACK_DAYS` | `7` | 每次回看最近 7 天，覆盖周末或延迟发布 |
 | `DAILY_PAPER_LIMIT` | `500` | 每次最多处理的新论文数量 |
 
@@ -378,7 +379,7 @@ git push origin main
 
 - 删除 `data` 分支中旧的论文 JSONL 和 Markdown。
 - 按当前 `keywords.txt` 重新检索最近 `LOOKBACK_DAYS` 天，默认是 7 天。
-- 重新调用 DeepSeek 生成中文总结，因此会产生 API 费用。
+- 重新调用 DeepSeek 翻译英文标题和摘要，因此会产生 API 费用。
 - 生成新的标签和 `assets/file-list.txt`，再覆盖推送到 `data` 分支。
 
 > [!WARNING]
@@ -392,7 +393,7 @@ git push origin main
 2. 从 `data` 分支恢复历史论文数据。
 3. 根据 `keywords.txt` 查询近期 arXiv 论文。
 4. 与全部历史论文 ID 去重。
-5. 调用 DeepSeek 生成中文总结。
+5. 调用 DeepSeek 完整翻译英文标题和 arXiv 摘要。
 6. 为论文添加或迁移主题标签。
 7. 将网页配置提交到 `main` 分支。
 8. 将论文 JSONL 数据提交到 `data` 分支。
@@ -457,7 +458,7 @@ GitHub 的定时任务可能因平台负载延迟几分钟，这是正常现象�
 - `Category`：按 arXiv 学科分类查看。
 - `主题标签`：点击一个或多个规范标签筛选论文。
 - `Filter`：按个人关键词或作者偏好高亮论文。
-- 搜索按钮：在标题、作者、摘要、中文总结和标签中搜索文本。
+- 搜索按钮：在中英文标题、作者、中英文摘要和标签中搜索文本。
 - 日历按钮：查看某一天或一个日期范围内的论文。
 
 也可以通过 URL 查询规范标签：
@@ -482,7 +483,7 @@ https://<你的网站地址>/?tags=world-models,physical-ai
 
 - `id`：稳定的内部标识，不应随意修改。
 - `label`：网站展示的中文名称。
-- `terms`：从标题、摘要和已有中文总结中判断标签的代表性词组。
+- `terms`：从中英文标题、摘要和已有中文翻译中判断标签的代表性词组。
 
 系统会校验：
 
@@ -541,11 +542,11 @@ https://<你的网站地址>/?tags=world-models,physical-ai
 }
 ```
 
-迁移时 [`tag_papers.py`](./tag_papers.py) 只读取历史 JSONL 中已有的标题、摘要、中文总结和标签字段：
+迁移时 [`tag_papers.py`](./tag_papers.py) 只读取历史 JSONL 中已有的中英文标题、摘要、中文翻译和标签字段：
 
 - 不下载或读取 PDF。
 - 不重新调用 DeepSeek。
-- 不重新生成论文总结。
+- 不重新生成论文翻译。
 - 可以重复运行，已经迁移完成的数据不会再次变化。
 
 本地验证命令：
@@ -696,7 +697,7 @@ OPENAI_BASE_URL = https://api.deepseek.com
 | --- | --- |
 | [`keywords.txt`](./keywords.txt) | 每日抓取和历史检索共用的关键词 |
 | [`fetch_daily.py`](./fetch_daily.py) | 查询近期 arXiv 论文并做历史去重 |
-| [`ai/enhance.py`](./ai/enhance.py) | 调用模型生成论文总结 |
+| [`ai/enhance.py`](./ai/enhance.py) | 调用模型完整翻译英文标题和摘要 |
 | [`tag_catalog.json`](./tag_catalog.json) | 30 个规范主题标签和迁移记录 |
 | [`tag_papers.py`](./tag_papers.py) | 为论文打标签并迁移旧标签 |
 | [`index.html`](./index.html) | 网站首页 |
@@ -710,7 +711,7 @@ OPENAI_BASE_URL = https://api.deepseek.com
 - 不要在 Actions 日志中打印 API Key。
 - 定期检查 DeepSeek API 用量和余额。
 - API Key 泄露后应立即在 DeepSeek 平台撤销并重新创建。
-- 公开网站上的 AI 总结必须人工甄别，不能代替原论文。
+- 公开网站上的 AI 翻译必须人工甄别，不能代替英文原文。
 
 ## 验证项目
 

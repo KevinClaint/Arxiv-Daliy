@@ -1,4 +1,10 @@
-Please analyze the following abstract of papers. 
+Translate the following arXiv metadata. The arXiv URL is a reference identifier only; do not claim to have opened or read the PDF.
 
-Content:
-{content}
+English title:
+{title}
+
+English abstract:
+{abstract}
+
+Original arXiv URL:
+{url}

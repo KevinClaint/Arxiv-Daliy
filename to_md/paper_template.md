@@ -1,21 +1,15 @@
 ### [{idx}] [{title}]({url})
+{title_zh}
+
 *{authors}*
 
 Main category: {cate}
 
-TL;DR: {tldr}
+中文摘要：{abstract_zh}
 
 
 <details>
-  <summary>Details</summary>
-Motivation: {motivation}
-
-Method: {method}
-
-Result: {result}
-
-Conclusion: {conclusion}
-
-Abstract: {summary}
+  <summary>English abstract</summary>
+{summary}
 
 </details>
