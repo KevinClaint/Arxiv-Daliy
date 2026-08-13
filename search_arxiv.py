@@ -70,6 +70,7 @@ FIELD_PREFIXES = {
     "title": "ti",
     "abstract": "abs",
     "author": "au",
+    "title_abstract": None,
 }
 
 # arXiv 计算机科学领域的全部 cs.* 子分类。
@@ -197,13 +198,19 @@ def build_query(
         raise ValueError("start date must not be after end date")
 
     prefix = FIELD_PREFIXES[field]
+
+    def field_query(value: str) -> str:
+        if field == "title_abstract":
+            return f'(ti:{_quoted(value)} OR abs:{_quoted(value)})'
+        return f"{prefix}:{_quoted(value)}"
+
     keyword_queries = []
     for keyword in cleaned_keywords:
         if match == "phrase":
-            keyword_queries.append(f"{prefix}:{_quoted(keyword)}")
+            keyword_queries.append(field_query(keyword))
             continue
 
-        terms = [f"{prefix}:{_quoted(term)}" for term in keyword.split()]
+        terms = [field_query(term) for term in keyword.split()]
         term_operator = " AND " if match == "all" else " OR "
         keyword_queries.append(
             f"({term_operator.join(terms)})" if len(terms) > 1 else terms[0]

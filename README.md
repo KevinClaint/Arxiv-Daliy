@@ -322,6 +322,16 @@ spatial reasoning
 physical reasoning
 ```
 
+当前关键词按“大方向”设计，通常使用 2 到 3 个英文词，例如：
+
+```text
+video generation
+world model
+3D understanding
+spatial reasoning
+physical reasoning
+```
+
 规则：
 
 - 每行一个关键词或短语。
@@ -329,7 +339,9 @@ physical reasoning
 - 空行会被忽略。
 - 匹配不区分英文大小写。
 - 多个关键词之间是“或”的关系，命中任意一个就会收录。
-- 多词短语中的各个词需要同时出现在标题或摘要查询结果中。
+- 只检索论文标题和摘要，不使用作者、评论等其他元数据匹配。
+- 多词关键词按完整短语匹配；连字符和普通空格视为等价，并兼容规则复数，例如 `world model` 可以命中 `world-model` 和 `world models`，但不会命中 `world modeling`。
+- 抓取后会在本地再次校验，并在 JSONL 的 `matched_keywords` 字段中记录命中的方向。
 
 关键词数量较多时，程序会自动分批请求 arXiv，然后合并和去重结果，避免查询地址过长。
 
@@ -349,6 +361,28 @@ git push origin main
 2. 点击右侧的 `Run workflow`。
 3. Branch 选择 `main`。
 4. 再点击绿色的 `Run workflow`。
+
+正常运行时保持 `rebuild_data` 未勾选，程序会使用 `data` 分支中的历史论文 ID 去重。
+
+### 关键词规则修改后重新生成整批数据
+
+如果旧数据是由错误或过时的关键词规则生成的，需要执行一次全量重建：
+
+1. 先把新的 `keywords.txt` 和检索代码提交并推送到 `main`。
+2. 打开 `Actions -> arXiv-daily-ai-enhanced -> Run workflow`。
+3. Branch 选择 `main`。
+4. 勾选 `rebuild_data`。
+5. 点击绿色的 `Run workflow`。
+
+重建模式会：
+
+- 删除 `data` 分支中旧的论文 JSONL 和 Markdown。
+- 按当前 `keywords.txt` 重新检索最近 `LOOKBACK_DAYS` 天，默认是 7 天。
+- 重新调用 DeepSeek 生成中文总结，因此会产生 API 费用。
+- 生成新的标签和 `assets/file-list.txt`，再覆盖推送到 `data` 分支。
+
+> [!WARNING]
+> `rebuild_data` 是全量替换论文库，不是普通增量更新。只在关键词或检索逻辑发生重大修正时勾选；日常自动任务和普通手动运行不要勾选。
 
 第一次运行可能需要较长时间，具体取决于命中的论文数量和模型接口速度。
 

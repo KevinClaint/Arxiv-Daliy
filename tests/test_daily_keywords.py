@@ -25,6 +25,12 @@ class DailyKeywordTests(unittest.TestCase):
     def test_empty_keyword_list_keeps_all_papers(self):
         self.assertTrue(matches_keywords("Any paper", "Any abstract", []))
 
+    def test_matches_hyphens_but_not_inflections_or_field_boundaries(self):
+        self.assertTrue(matches_keywords("A world-model", "", ["world model"]))
+        self.assertTrue(matches_keywords("Learning world models", "", ["world model"]))
+        self.assertFalse(matches_keywords("World modeling", "", ["world model"]))
+        self.assertFalse(matches_keywords("The world", "Models for control", ["world model"]))
+
 
 if __name__ == "__main__":
     unittest.main()

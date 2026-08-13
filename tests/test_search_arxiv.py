@@ -109,6 +109,12 @@ class SearchArxivTests(unittest.TestCase):
             '(all:"robotics" AND all:"reinforcement learning")',
         )
 
+    def test_searches_a_phrase_in_title_or_abstract_only(self):
+        self.assertEqual(
+            build_query("world model", field="title_abstract"),
+            '(ti:"world model" OR abs:"world model")',
+        )
+
     def test_limits_query_to_arxiv_categories(self):
         self.assertEqual(
             build_query("transformer", categories=["cs.AI", "cs.CV"]),

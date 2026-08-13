@@ -7,6 +7,7 @@
 # useful for handling different item types with a single interface
 import arxiv
 import os
+import re
 from pathlib import Path
 
 from scrapy.exceptions import DropItem
@@ -27,8 +28,24 @@ def matches_keywords(title: str, summary: str, keywords: list[str]) -> bool:
     """Return whether any configured phrase occurs in the title or abstract."""
     if not keywords:
         return True
-    searchable_text = " ".join(f"{title} {summary}".casefold().split())
-    return any(" ".join(keyword.split()) in searchable_text for keyword in keywords)
+
+    def normalize(value: str) -> str:
+        return " ".join(re.sub(r"[^\w]+", " ", value.casefold()).split())
+
+    normalized_title = f" {normalize(title)} "
+    normalized_summary = f" {normalize(summary)} "
+    for keyword in keywords:
+        normalized_keyword = normalize(keyword)
+        variants = [normalized_keyword]
+        words = normalized_keyword.split()
+        if words and words[-1] in {"model", "scene", "simulator"}:
+            variants.append(" ".join([*words[:-1], f"{words[-1]}s"]))
+        if any(
+            f" {variant} " in normalized_title or f" {variant} " in normalized_summary
+            for variant in variants
+        ):
+            return True
+    return False
 
 
 class DailyArxivPipeline:

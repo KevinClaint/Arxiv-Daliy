@@ -8,6 +8,12 @@ on:
     # GitHub cron uses UTC. 01:30 UTC is 09:30 in Asia/Shanghai.
     - cron: "30 1 * * *"
   workflow_dispatch:
+    inputs:
+      rebuild_data:
+        description: "删除旧论文数据并按当前关键词重新抓取最近 LOOKBACK_DAYS 天"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -39,6 +45,11 @@ jobs:
           echo "已恢复 data 分支历史数据 / Restored history from data branch"
         else
           echo "首次运行，尚无 data 分支 / First run: data branch does not exist"
+        fi
+
+        if [ "${{ inputs.rebuild_data }}" = "true" ]; then
+          echo "重建模式：清空本次运行环境中的旧论文数据 / Rebuild mode: clearing restored paper data"
+          find data -maxdepth 1 -type f \( -name '*.jsonl' -o -name '*.md' \) -delete
         fi
         
     - name: Fetch recent arXiv papers by keyword
@@ -298,7 +309,7 @@ jobs:
         done
 
     - name: Prepare data files for data branch
-      if: steps.dedup_check.outputs.has_new_content == 'true' || steps.tag_step.outputs.tags_changed == 'true'
+      if: steps.dedup_check.outputs.has_new_content == 'true' || steps.tag_step.outputs.tags_changed == 'true' || inputs.rebuild_data == true
       run: |
         echo "准备数据文件... / Preparing data files..."
         today=${{ steps.crawl_step.outputs.crawl_date }}
@@ -314,7 +325,7 @@ jobs:
         echo "数据文件已保存到临时目录 / Data files saved to temporary directory"
 
     - name: Setup and commit to data branch
-      if: steps.dedup_check.outputs.has_new_content == 'true' || steps.tag_step.outputs.tags_changed == 'true'
+      if: steps.dedup_check.outputs.has_new_content == 'true' || steps.tag_step.outputs.tags_changed == 'true' || inputs.rebuild_data == true
       run: |
         git config --global user.email "${{ vars.EMAIL || '41898282+github-actions[bot]@users.noreply.github.com' }}"
         git config --global user.name "${{ vars.NAME || 'github-actions[bot]' }}"
@@ -348,6 +359,11 @@ jobs:
           git commit -m "chore: initialize data branch"
           git push origin data
         fi
+
+        if [ "${{ inputs.rebuild_data }}" = "true" ]; then
+          echo "重建模式：从 data 分支删除旧论文文件 / Rebuild mode: removing old paper files"
+          git rm -f --ignore-unmatch data/*.jsonl data/*.md assets/file-list.txt
+        fi
         
         # 从临时目录恢复数据文件 / Restore data files from temporary directory
         # 确保目录存在 / Ensure directories exist
@@ -368,7 +384,7 @@ jobs:
         fi
 
     - name: Push data changes to data branch
-      if: steps.dedup_check.outputs.has_new_content == 'true' || steps.tag_step.outputs.tags_changed == 'true'
+      if: steps.dedup_check.outputs.has_new_content == 'true' || steps.tag_step.outputs.tags_changed == 'true' || inputs.rebuild_data == true
       run: |
         # 设置Git配置以处理自动合并 / Set Git config for automatic merging
         git config pull.rebase true

@@ -44,7 +44,34 @@ def parse_categories(value: str | None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()] if value else []
 
 
-def paper_to_daily_record(paper: Any) -> dict[str, Any]:
+def normalize_match_text(value: str) -> str:
+    return " ".join(re.sub(r"[^\w]+", " ", value.casefold()).split())
+
+
+def phrase_variants(keyword: str) -> tuple[str, ...]:
+    normalized = normalize_match_text(keyword)
+    words = normalized.split()
+    if not words or words[-1] not in {"model", "scene", "simulator"}:
+        return (normalized,)
+    return (normalized, " ".join([*words[:-1], f"{words[-1]}s"]))
+
+
+def find_matching_keywords(paper: Any, keywords: Sequence[str]) -> list[str]:
+    title = f" {normalize_match_text(paper.title)} "
+    summary = f" {normalize_match_text(paper.summary)} "
+    return [
+        keyword
+        for keyword in keywords
+        if any(
+            f" {variant} " in title or f" {variant} " in summary
+            for variant in phrase_variants(keyword)
+        )
+    ]
+
+
+def paper_to_daily_record(
+    paper: Any, matched_keywords: Sequence[str] = ()
+) -> dict[str, Any]:
     paper_id = paper.get_short_id()
     return {
         "id": paper_id,
@@ -57,11 +84,15 @@ def paper_to_daily_record(paper: Any) -> dict[str, Any]:
         "summary": " ".join(paper.summary.split()),
         "published": paper.published.isoformat() if paper.published else None,
         "updated": paper.updated.isoformat() if paper.updated else None,
+        "matched_keywords": list(matched_keywords),
     }
 
 
 def collect_new_papers(
-    papers: Iterable[Any], existing_ids: set[str], limit: int
+    papers: Iterable[Any],
+    existing_ids: set[str],
+    limit: int,
+    keywords: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     seen = set(existing_ids)
@@ -69,8 +100,11 @@ def collect_new_papers(
         paper_id = canonical_id(paper.get_short_id())
         if paper_id in seen:
             continue
+        matched_keywords = find_matching_keywords(paper, keywords)
+        if keywords and not matched_keywords:
+            continue
         seen.add(paper_id)
-        records.append(paper_to_daily_record(paper))
+        records.append(paper_to_daily_record(paper, matched_keywords))
         if len(records) >= limit:
             break
     return records
@@ -89,17 +123,22 @@ def build_daily_queries(
     categories: Sequence[str],
     batch_size: int,
 ) -> list[str]:
+    query_phrases = list(
+        dict.fromkeys(
+            variant for keyword in keywords for variant in phrase_variants(keyword)
+        )
+    )
     return [
         build_query(
             keyword_batch,
-            field="all",
-            match="all",
+            field="title_abstract",
+            match="phrase",
             start_date=start_date,
             end_date=end_date,
             keyword_operator="OR",
             categories=categories,
         )
-        for keyword_batch in batched(keywords, batch_size)
+        for keyword_batch in batched(query_phrases, batch_size)
     ]
 
 
@@ -158,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         key=lambda paper: paper.published or datetime.min.replace(tzinfo=timezone.utc),
         reverse=True,
     )
-    records = collect_new_papers(candidates, existing_ids, args.limit)
+    records = collect_new_papers(candidates, existing_ids, args.limit, keywords)
     output.write_text(
         "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
         encoding="utf-8",
