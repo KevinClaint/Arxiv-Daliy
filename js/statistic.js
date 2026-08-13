@@ -39,7 +39,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function fetchGitHubStats() {
   try {
-    const response = await fetch('https://api.github.com/repos/dw-dengwei/daily-arXiv-ai-enhanced');
+    const response = await fetch(
+      `https://api.github.com/repos/${DATA_CONFIG.repoOwner}/${DATA_CONFIG.repoName}`
+    );
     const data = await response.json();
     const starCount = data.stargazers_count;
     const forkCount = data.forks_count;
@@ -146,12 +148,7 @@ function selectLanguageForDate(date, preferredLanguage = null) {
 async function fetchAvailableDates() {
   try {
     // 从 data 分支获取文件列表
-    const fileListUrl = DATA_CONFIG.getDataUrl('assets/file-list.txt');
-    const response = await fetch(fileListUrl);
-    if (!response.ok) {
-      console.error('Error fetching file list:', response.status);
-      return [];
-    }
+    const response = await DATA_CONFIG.fetchData('assets/file-list.txt');
     const text = await response.text();
     const files = text.trim().split('\n');
 
@@ -183,6 +180,18 @@ async function fetchAvailableDates() {
     return availableDates;
   } catch (error) {
     console.error('获取可用日期失败:', error);
+    availableDates = [];
+    window.dateLanguageMap = new Map();
+    const container = document.getElementById('papersList');
+    if (container) {
+      container.innerHTML = `
+        <div class="loading-container">
+          <p>论文统计数据加载失败，请稍后重试。</p>
+          <button type="button" class="button" onclick="window.location.reload()">重新加载</button>
+        </div>
+      `;
+    }
+    return [];
   }
 }
 
@@ -287,8 +296,8 @@ async function loadPapersByDateRange(startDate, endDate) {
     for (const date of validDatesInRange) {
       const selectedLanguage = selectLanguageForDate(date);
       // 从 data 分支获取数据文件
-      const dataUrl = DATA_CONFIG.getDataUrl(`data/${date}_AI_enhanced_${selectedLanguage}.jsonl`);
-      const response = await fetch(dataUrl);
+      const dataPath = `data/${date}_AI_enhanced_${selectedLanguage}.jsonl`;
+      const response = await DATA_CONFIG.fetchData(dataPath);
       const text = await response.text();
       const dataPapers = parseJsonlData(text, date);
       

@@ -457,9 +457,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   await Promise.all([loadSystemTagCatalog(), fetchAvailableDates()]);
   renderSystemTagFilter();
   if (availableDates.length > 0) {
-    loadPapersByDate(availableDates[0]);
+    await loadPapersByDate(availableDates[0]);
+  } else {
+    showDataLoadError('没有找到可用的论文数据，请检查 data 分支或稍后刷新页面。');
   }
 });
+
+function showDataLoadError(message) {
+  const container = document.getElementById('paperContainer');
+  const currentDateElement = document.getElementById('currentDate');
+  if (currentDateElement) currentDateElement.textContent = 'Unavailable';
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="loading-container">
+      <p>论文数据加载失败</p>
+      <p>${message}</p>
+      <button type="button" class="button" onclick="window.location.reload()">重新加载</button>
+    </div>
+  `;
+}
 
 async function fetchGitHubStats() {
   try {
@@ -779,12 +796,7 @@ function selectLanguageForDate(date, preferredLanguage = null) {
 async function fetchAvailableDates() {
   try {
     // 从 data 分支获取文件列表
-    const fileListUrl = DATA_CONFIG.getDataUrl('assets/file-list.txt');
-    const response = await fetch(fileListUrl);
-    if (!response.ok) {
-      console.error('Error fetching file list:', response.status);
-      return [];
-    }
+    const response = await DATA_CONFIG.fetchData('assets/file-list.txt');
     const text = await response.text();
     const files = text.trim().split('\n');
 
@@ -816,6 +828,9 @@ async function fetchAvailableDates() {
     return availableDates;
   } catch (error) {
     console.error('获取可用日期失败:', error);
+    availableDates = [];
+    window.dateLanguageMap = new Map();
+    return [];
   }
 }
 
@@ -909,22 +924,8 @@ async function loadPapersByDate(date) {
   try {
     const selectedLanguage = selectLanguageForDate(date);
     // 从 data 分支获取数据文件
-    const dataUrl = DATA_CONFIG.getDataUrl(`data/${date}_AI_enhanced_${selectedLanguage}.jsonl`);
-    const response = await fetch(dataUrl);
-    // 如果文件不存在（例如返回 404），在论文展示区域提示没有论文
-    if (!response.ok) {
-      if (response.status === 404) {
-        container.innerHTML = `
-          <div class="loading-container">
-            <p>No papers found for this date.</p>
-          </div>
-        `;
-        paperData = {};
-        renderCategoryFilter({ sortedCategories: [], categoryCounts: {} });
-        return;
-      }
-      throw new Error(`HTTP ${response.status}`);
-    }
+    const dataPath = `data/${date}_AI_enhanced_${selectedLanguage}.jsonl`;
+    const response = await DATA_CONFIG.fetchData(dataPath);
     const text = await response.text();
     // 空文件也提示没有论文
     if (!text || text.trim() === '') {
@@ -1822,8 +1823,8 @@ async function loadPapersByDateRange(startDate, endDate) {
     for (const date of validDatesInRange) {
       const selectedLanguage = selectLanguageForDate(date);
       // 从 data 分支获取数据文件
-      const dataUrl = DATA_CONFIG.getDataUrl(`data/${date}_AI_enhanced_${selectedLanguage}.jsonl`);
-      const response = await fetch(dataUrl);
+      const dataPath = `data/${date}_AI_enhanced_${selectedLanguage}.jsonl`;
+      const response = await DATA_CONFIG.fetchData(dataPath);
       const text = await response.text();
       const dataPapers = parseJsonlData(text, date);
       

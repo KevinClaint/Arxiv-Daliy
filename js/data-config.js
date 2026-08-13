@@ -41,6 +41,43 @@ const DATA_CONFIG = {
      */
     getDataUrl: function(filePath) {
         return `${this.getDataBaseUrl()}/${filePath}`;
+    },
+
+    getDataUrls: function(filePath) {
+        const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+        return [
+            `${this.getDataBaseUrl()}/${encodedPath}`,
+            `https://cdn.jsdelivr.net/gh/${this.repoOwner}/${this.repoName}@${this.dataBranch}/${encodedPath}`
+        ];
+    },
+
+    fetchData: async function(filePath, options = {}) {
+        const timeoutMs = options.timeoutMs || 8000;
+        const errors = [];
+
+        for (const url of this.getDataUrls(filePath)) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+            try {
+                const response = await fetch(url, {
+                    signal: controller.signal,
+                    cache: 'no-cache'
+                });
+
+                if (response.ok) {
+                    return response;
+                }
+
+                errors.push(`${url}: HTTP ${response.status}`);
+            } catch (error) {
+                const reason = error.name === 'AbortError' ? `timeout after ${timeoutMs}ms` : error.message;
+                errors.push(`${url}: ${reason}`);
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }
+
+        throw new Error(`Unable to load ${filePath}. ${errors.join(' | ')}`);
     }
 };
-
